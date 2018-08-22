@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'lite_spec_helper'
 
 MODELS = File.join(File.dirname(__FILE__), "app/models")
@@ -85,6 +87,20 @@ def array_filters_supported?
   Mongoid::Clients.default.cluster.next_primary.features.array_filters_enabled?
 end
 alias :sessions_supported? :array_filters_supported?
+
+def testing_geo_near?
+  $geo_near_enabled ||= (Mongoid::Clients.default
+                             .command(serverStatus: 1)
+                             .first['version'] < '4.1')
+end
+
+def transactions_supported?
+  Mongoid::Clients.default.cluster.next_primary.features.transactions_enabled?
+end
+
+def testing_transactions?
+  transactions_supported? && testing_replica_set?
+end
 
 def testing_locally?
   !(ENV['CI'] == 'travis')

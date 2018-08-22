@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'mongoid/association/constrainable'
 require 'mongoid/association/options'
 
@@ -327,7 +329,7 @@ module Mongoid
 
       def define_touchable!
         if touchable?
-          Association::Touchable.define_touchable!(self)
+          Touchable.define_touchable!(self)
         end
       end
 
