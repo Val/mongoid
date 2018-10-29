@@ -6,6 +6,7 @@ MODELS = File.join(File.dirname(__FILE__), "app/models")
 $LOAD_PATH.unshift(MODELS)
 
 require "action_controller"
+require 'rspec/retry'
 
 if SpecConfig.instance.client_debug?
   Mongoid.logger.level = Logger::DEBUG
@@ -29,6 +30,7 @@ end
 
 require 'support/authorization'
 require 'support/expectations'
+require 'support/constraints'
 
 # Give MongoDB time to start up on the travis ci environment.
 if (ENV['CI'] == 'travis' || ENV['CI'] == 'evergreen')
@@ -51,7 +53,12 @@ CONFIG = {
       database: database_id,
       hosts: SpecConfig.instance.addresses,
       options: {
-        server_selection_timeout: 0.5,
+        server_selection_timeout:
+          if SpecConfig.instance.jruby?
+            3
+          else
+            0.5
+          end,
         wait_queue_timeout: 5,
         max_pool_size: 5,
         heartbeat_frequency: 180,
@@ -144,6 +151,7 @@ I18n.config.enforce_available_locales = false
 RSpec.configure do |config|
   config.raise_errors_for_deprecations!
   config.include(Mongoid::Expectations)
+  config.extend(Constraints)
 
   config.before(:suite) do
     client = Mongo::Client.new(SpecConfig.instance.addresses)
@@ -162,10 +170,6 @@ RSpec.configure do |config|
     Mongoid.default_client.collections.each do |coll|
       coll.delete_many
     end
-  end
-
-  config.after(:suite) do
-    Mongoid.purge!
   end
 end
 

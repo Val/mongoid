@@ -164,12 +164,13 @@ module Mongoid
         @cursor_id = result.cursor_id
         @coll_name ||= result.namespace.sub("#{database.name}.", '') if result.namespace
         documents = result.documents
-        (@cached_documents ||= []).concat(documents)
+        (@cached_documents ||= []).concat(documents) if @cursor_id.zero? && !@after_first_batch
+        @after_first_batch = true
         documents
       end
     end
 
-    # Included to add behaviour for clearing out the query cache on certain
+    # Included to add behavior for clearing out the query cache on certain
     # operations.
     #
     # @since 4.0.0
@@ -259,7 +260,7 @@ module Mongoid
       end
     end
 
-    # Adds behaviour to the query cache for collections.
+    # Adds behavior to the query cache for collections.
     #
     # @since 5.0.0
     module Collection
