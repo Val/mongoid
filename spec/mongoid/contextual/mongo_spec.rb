@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -2393,7 +2394,7 @@ describe Mongoid::Contextual::Mongo do
       end
 
       it 'creates a pipeline with the selector as one of the $match criteria' do
-        expect(pipeline_match).to include({ :'$text' => { :'$search' => "New Order" } })
+        expect(pipeline_match).to include({ '$text' => { '$search' => "New Order" } })
       end
 
       it 'creates a pipeline with the $exists operator as one of the $match criteria' do

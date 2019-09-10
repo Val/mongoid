@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -18,17 +19,26 @@ describe Mongoid::Clients::Sessions do
   end
 
   let(:subscriber) do
-    Mongoid::Clients.with_name(:other).send(:monitoring).subscribers['Command'].find do |s|
+    client = Mongoid::Clients.with_name(:other)
+    monitoring = if client.respond_to?(:monitoring, true)
+      client.send(:monitoring)
+    else
+      # driver 2.5
+      client.instance_variable_get('@monitoring')
+    end
+    monitoring.subscribers['Command'].find do |s|
       s.is_a?(EventSubscriber)
     end
   end
 
   let(:insert_events) do
-    subscriber.started_events.select { |event| event.command_name == 'insert' }
+    # Driver 2.5 sends command_name as a symbol
+    subscriber.started_events.select { |event| event.command_name.to_s == 'insert' }
   end
 
   let(:update_events) do
-    subscriber.started_events.select { |event| event.command_name == 'update' }
+    # Driver 2.5 sends command_name as a symbol
+    subscriber.started_events.select { |event| event.command_name.to_s == 'update' }
   end
 
   context 'when a session is used on a model class' do

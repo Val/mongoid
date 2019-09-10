@@ -1,17 +1,18 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 module Mongoid
   module Association
     module Embedded
       class EmbedsMany
 
-        # Binding class for all embeds_many relations.
+        # Binding class for all embeds_many associations.
         #
         # @since 7.0
         class Binding
           include Bindable
 
-          # Binds a single document with the inverse relation. Used
+          # Binds a single document with the inverse association. Used
           # specifically when appending to the proxy.
           #
           # @example Bind one document.

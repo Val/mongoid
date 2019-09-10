@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Atomic
     module Paths
@@ -23,7 +24,7 @@ module Mongoid
         end
 
         # Asking for the insert modifier on a document with a root path
-        # indicates a mixed relation most likely happened.
+        # indicates a mixed association most likely happened.
         #
         # @example Attempt to get the insert modifier.
         #   root.insert_modifier

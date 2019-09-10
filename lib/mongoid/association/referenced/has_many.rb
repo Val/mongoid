@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require 'mongoid/association/referenced/has_many/binding'
 require 'mongoid/association/referenced/has_many/buildable'
@@ -121,7 +122,7 @@ module Mongoid
         # @since 7.0
         def stores_foreign_key?; false; end
 
-        # Get the relation proxy class for this association type.
+        # Get the association proxy class for this association type.
         #
         # @return [ Association::HasMany::Proxy ] The proxy class.
         #
@@ -130,9 +131,9 @@ module Mongoid
           Proxy
         end
 
-        # The criteria used for querying this relation.
+        # The criteria used for querying this association.
         #
-        # @return [ Mongoid::Criteria ] The criteria used for querying this relation.
+        # @return [ Mongoid::Criteria ] The criteria used for querying this association.
         #
         # @since 7.0
         def criteria(base)
@@ -141,7 +142,7 @@ module Mongoid
 
         # The type of this association if it's polymorphic.
         #
-        # @note Only relevant for polymorphic relations.
+        # @note Only relevant for polymorphic associations.
         #
         # @return [ String, nil ] The type field.
         #

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Association
     module Referenced
@@ -17,11 +18,12 @@ module Mongoid
           #   relation.build(association, attrs)
           #
           # @param [ Object ] base The base object.
-          # @param [ Object ] object The object to use to build the relation.
+          # @param [ Object ] object The object to use to build the association.
           # @param [ String ] type Not used in this context.
+          # @param [ nil ] selected_fields Must be nil.
           #
           # @return [ Array<Document> ] The documents.
-          def build(base, object, type = nil)
+          def build(base, object, type = nil, selected_fields = nil)
             if query?(object)
               query_criteria(object)
             else

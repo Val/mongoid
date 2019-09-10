@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 require "mongoid/persistable/creatable"
 require "mongoid/persistable/deletable"
 require "mongoid/persistable/destroyable"
@@ -83,9 +84,7 @@ module Mongoid
     #     document.set name: "Tool"
     #   end
     #
-    # @param [ Hash ] options The options to pass to atomically.
-    #
-    # @option options [ true, false ] :join_context Join the context (i.e. merge
+    # @param [ true, false ] join_context Join the context (i.e. merge
     #   declared atomic operations) of the atomically block wrapping this one
     #   for the same document, if one exists.
     #

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 require "mongoid/changeable"
 require "mongoid/findable"
 require "mongoid/indexable"
@@ -91,7 +92,7 @@ module Mongoid
     ]
 
     # These are methods names defined in included blocks that may conflict
-    # with user-defined relation or field names.
+    # with user-defined association or field names.
     # They won't be in the list of Module.instance_methods on which the
     # #prohibited_methods code below is dependent so we must track them
     # separately.

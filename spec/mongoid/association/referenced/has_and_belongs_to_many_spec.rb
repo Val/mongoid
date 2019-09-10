@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -656,7 +657,7 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany do
     end
   end
 
-  describe '#klass' do
+  describe '#relation_class' do
 
     context 'when the :class_name option is specified' do
 
@@ -670,14 +671,14 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany do
       end
 
       it 'returns the class name option' do
-        expect(association.klass).to eq(_class)
+        expect(association.relation_class).to eq(_class)
       end
     end
 
     context 'when the class_name option is not specified' do
 
       it 'uses the name of the relation to deduce the class name' do
-        expect(association.klass).to eq(HasManyRightObject)
+        expect(association.relation_class).to eq(HasManyRightObject)
       end
     end
   end
@@ -1015,14 +1016,35 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany do
 
   describe '#inverse_foreign_key' do
 
-    it 'returns nil' do
+    it 'returns generated key' do
       expect(association.inverse_foreign_key).to eq('has_many_left_object_ids')
+    end
+
+    context 'with inverse given' do
+      let(:options) do
+        { inverse_of: 'foo' }
+      end
+
+      it 'returns configured key' do
+        expect(association.inverse_foreign_key).to eq('foo_ids')
+      end
+    end
+
+    context 'with primary_key and foreign_key given' do
+      let(:options) do
+        { primary_key: 'foo', foreign_key: 'foo_ref',
+          inverse_primary_key: 'bar', inverse_foreign_key: 'bar_ref' }
+      end
+
+      it 'returns configured key' do
+        expect(association.inverse_foreign_key).to eq('bar_ref')
+      end
     end
   end
 
   describe '#inverse_foreign_key_setter' do
 
-    it 'returns nil' do
+    it 'returns generated method name' do
       expect(association.inverse_foreign_key_setter).to eq('has_many_left_object_ids=')
     end
   end

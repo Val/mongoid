@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   class Criteria
     module Queryable
@@ -22,9 +23,10 @@ module Mongoid
           other.each_pair do |key, value|
             if value.is_a?(Hash) && self[key.to_s].is_a?(Hash)
               value = self[key.to_s].merge(value) do |_key, old_val, new_val|
-                if in?(_key)
+                case _key
+                when '$in'
                   new_val & old_val
-                elsif nin?(_key)
+                when '$nin'
                   (old_val + new_val).uniq
                 else
                   new_val
@@ -53,10 +55,13 @@ module Mongoid
         def store(key, value)
           name, serializer = storage_pair(key)
           if multi_selection?(name)
-            super(name, evolve_multi(value))
+            store_name = name
+            store_value = evolve_multi(value)
           else
-            super(localized_key(name, serializer), evolve(serializer, value))
+            store_name = localized_key(name, serializer)
+            store_value = evolve(serializer, value)
           end
+          super(store_name, store_value)
         end
         alias :[]= :store
 
@@ -179,33 +184,7 @@ module Mongoid
         #
         # @since 1.0.0
         def multi_selection?(key)
-          key =~ /\$and|\$or|\$nor/
-        end
-
-        # Determines if the selection operator takes a list. Returns true for $in and $nin.
-        #
-        # @api private
-        #
-        # @example Does the selection operator take multiple values?
-        #   selector.multi_value?("$nin")
-        #
-        # @param [ String ] key The key to check.
-        #
-        # @return [ true, false ] If the key is $in or $nin.
-        #
-        # @since 2.1.1
-        def multi_value?(key)
-          key =~ /\$nin|\$in/
-        end
-
-        private
-
-        def in?(key)
-          key =~ /\$in/
-        end
-
-        def nin?(key)
-          key =~ /\$nin/
+          %w($and $or $nor).include?(key)
         end
       end
     end

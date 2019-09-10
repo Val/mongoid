@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -372,11 +373,11 @@ describe Mongoid::Criteria::Queryable::Selector do
         context "when providing an array" do
 
           let(:big_one) do
-            BigDecimal.new("1.2321")
+            BigDecimal("1.2321")
           end
 
           let(:big_two) do
-            BigDecimal.new("4.2222")
+            BigDecimal("4.2222")
           end
 
           let(:array) do
@@ -840,6 +841,43 @@ describe Mongoid::Criteria::Queryable::Selector do
 
       it "returns the selector in a $match entry" do
         expect(pipeline).to eq([{ "$match" => { "name" => "test" }}])
+      end
+    end
+  end
+
+  describe '#multi_selection?' do
+
+    let(:selector) do
+      described_class.new
+    end
+
+    context 'when key is $and' do
+      it 'returns true' do
+        expect(selector.send(:multi_selection?, '$and')).to be true
+      end
+    end
+
+    context 'when key is $or' do
+      it 'returns true' do
+        expect(selector.send(:multi_selection?, '$or')).to be true
+      end
+    end
+
+    context 'when key is $nor' do
+      it 'returns true' do
+        expect(selector.send(:multi_selection?, '$nor')).to be true
+      end
+    end
+
+    context 'when key includes $or but is not $or' do
+      it 'returns false' do
+        expect(selector.send(:multi_selection?, '$ore')).to be false
+      end
+    end
+
+    context 'when key is some other ey' do
+      it 'returns false' do
+        expect(selector.send(:multi_selection?, 'foo')).to be false
       end
     end
   end

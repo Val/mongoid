@@ -95,11 +95,14 @@ the following:
 
 1. When assigning values to fields, the values are converted to the
 specified type.
+
 2. When persisting data to MongoDB, the data is sent in an appropriate
 type, permitting richer data manipulation within MongoDB or by other
 tools.
+
 3. When querying documents, query parameters are converted to the specified
 type before being sent to MongoDB.
+
 4. When retrieving documents from the database, field values are converted
 to the specified type.
 
@@ -139,6 +142,7 @@ Below is a list of valid types for fields.
 - ``BSON::Binary``
 - ``Range``
 - ``Regexp``
+- ``Set``
 - ``String``
 - ``Symbol``
 - ``Time``
@@ -168,6 +172,60 @@ Types that are not supported as dynamic attributes since they cannot be cast are
 - ``Date``
 - ``DateTime``
 - ``Range``
+
+
+Updating Container Fields
+*************************
+
+Be aware that, until
+`MONGOID-2951 <https://jira.mongodb.org/browse/MONGOID-2951>`_
+is resolved, all fields including container ones must be assigned to for
+their values to be persisted to the database.
+
+For example, adding to a set like this does not work:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
+    field :tours, type: Set
+  end
+  
+  band = Band.new
+  band.tours
+  # => #<Set: {}>
+
+  band.tours << 'London'
+  # => #<Set: {"London"}>
+  band.tours
+  # => #<Set: {}>
+
+Instead, the field value must be modified outside of the model and assigned
+back to the model as follows:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
+    field :tours, type: Set
+  end
+  
+  band = Band.new
+  
+  tours = band.tours
+  # => #<Set: {}>
+
+  tours << 'London'
+  # => #<Set: {"London"}>
+  
+  band.tours = tours
+  # => #<Set: {"London"}>
+  
+  band.tours
+  # => #<Set: {"London"}>
+
 
 Accessing Field Values
 **********************
@@ -314,7 +372,7 @@ returned is defined by the :ref:`configured time zone settings <time-zones>`.
     ticket.opened_at
     # => Sun, 18 Feb 2018 13:00:08 +0100
     ticket
-    => #<Ticket _id: 5c13d4b9026d7c4e7870bb2f, opened_at: 2018-02-18 12:00:08 UTC>
+    # => #<Ticket _id: 5c13d4b9026d7c4e7870bb2f, opened_at: 2018-02-18 12:00:08 UTC>
 
     Time.zone = 'America/New_York'
     ticket.opened_at
@@ -600,7 +658,7 @@ must use the other provided accessor methods:
 Localized Fields
 ----------------
 
-Mongoid now supports localized fields without the need of an additional gem.
+Mongoid supports localized fields via `i18n <https://github.com/ruby-i18n/i18n>`_.
 
 .. code-block:: ruby
 
@@ -800,9 +858,9 @@ error will be raised.
 Inheritance
 -----------
 
-Mongoid supports inheritance in both root and embedded documents. In scenarios where
-documents are inherited from their fields, relations, validations and scopes get copied
-down into their child documents, but not vise-versa.
+Mongoid supports inheritance in both top level and embedded documents. When
+a child document inherits from a parent document, the parent document's
+fields, associations, validations and scopes are copied to the child document.
 
 .. code-block:: ruby
 

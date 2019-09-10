@@ -1,10 +1,17 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 $LOAD_PATH.unshift(File.dirname(__FILE__))
 $LOAD_PATH.unshift(File.join(File.dirname(__FILE__), "..", "lib"))
 
 require "mongoid"
 require "rspec"
+
+# MRI 2.5 and JRuby 9.2 change visibility of Object#pp when 'pp' is required,
+# which happens when RSpec reports anything. This creates an issue for tests
+# that verify method forwarding. Work around by proactively loading 'pp'.
+# https://github.com/jruby/jruby/issues/5599
+require 'pp'
 
 require 'support/spec_config'
 

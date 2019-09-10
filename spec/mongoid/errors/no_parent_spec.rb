@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -24,7 +25,7 @@ describe Mongoid::Errors::NoParent do
 
     it "contains the resolution in the message" do
       expect(error.message).to include(
-        "Ensure that you've set the parent relation if instantiating"
+        "Ensure that you've set the parent association if instantiating"
       )
     end
   end

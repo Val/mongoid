@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Extensions
     module BigDecimal
@@ -54,7 +55,7 @@ module Mongoid
         #
         # @since 3.0.0
         def demongoize(object)
-          object && object.numeric? ? ::BigDecimal.new(object.to_s) : nil
+          object && object.numeric? ? BigDecimal(object.to_s) : nil
         end
 
         # Mongoize an object of any type to how it's stored in the db as a String.

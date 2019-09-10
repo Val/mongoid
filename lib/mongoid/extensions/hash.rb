@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Extensions
     module Hash
@@ -55,7 +56,7 @@ module Mongoid
         consolidated
       end
 
-      # Check if the hash is part of a blank relation criteria.
+      # Check if the hash is part of a blank association criteria.
       #
       # @example Is the hash blank criteria?
       #   {}.blank_criteria?

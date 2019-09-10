@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require 'mongoid/association/embedded/embedded_in/binding'
 require 'mongoid/association/embedded/embedded_in/buildable'
@@ -56,7 +57,7 @@ module Mongoid
 
         # The primary key
         #
-        # @return [ nil ] Not relevant for this relation
+        # @return [ nil ] Not relevant for this association
         def primary_key; end
 
         # Does this association type store the foreign key?
@@ -75,14 +76,14 @@ module Mongoid
 
         # The key that is used to get the attributes for the associated object.
         #
-        # @return [ String ] The name of the relation.
+        # @return [ String ] The name of the association.
         #
         # @since 7.0
         def key
           @key ||= name.to_s
         end
 
-        # Get the relation proxy class for this association type.
+        # Get the association proxy class for this association type.
         #
         # @return [ Association::Embedded::EmbeddedIn::Proxy ] The proxy class.
         #

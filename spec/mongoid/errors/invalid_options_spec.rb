@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -12,13 +13,13 @@ describe Mongoid::Errors::InvalidOptions do
 
     it "contains the problem in the message" do
       expect(error.message).to include(
-        "Invalid option :invalid provided to relation :name."
+        "Invalid option :invalid provided to association :name."
       )
     end
 
     it "contains the summary in the message" do
       expect(error.message).to include(
-        "Mongoid checks the options that are passed to the relation macros"
+        "Mongoid checks the options that are passed to the association macros"
       )
     end
 

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
 
   # This module contains the behavior of Mongoid's clone/dup of documents.
@@ -74,8 +75,12 @@ module Mongoid
         next unless attrs.present? && attrs[association.key].present?
 
         if association.is_a?(Association::Embedded::EmbedsMany)
-          attrs[association.name.to_s].each do |attr|
-            embedded_klass = attr.fetch('_type', association.class_name).constantize
+          attrs[association.key].each do |attr|
+            embedded_klass = if type = attr['_type']
+              type.constantize
+            else
+              association.relation_class
+            end
             process_localized_attributes(embedded_klass, attr)
           end
         else

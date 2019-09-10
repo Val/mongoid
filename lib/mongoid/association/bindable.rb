@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Association
 
-    # Superclass for all objects that bind relations together.
+    # Superclass for all objects that bind associations together.
     module Bindable
       include Threaded::Lifecycle
 
@@ -85,7 +86,7 @@ module Mongoid
       end
 
       # Set the type of the related document on the foreign type field, used
-      # when relations are polymorphic.
+      # when associations are polymorphic.
       #
       # @api private
       #
@@ -103,7 +104,7 @@ module Mongoid
       end
 
       # Set the type of the related document on the foreign type field, used
-      # when relations are polymorphic.
+      # when associations are polymorphic.
       #
       # @api private
       #
@@ -138,7 +139,7 @@ module Mongoid
         end
       end
 
-      # Bind the provided document with the base from the parent relation.
+      # Bind the provided document with the base from the parent association.
       #
       # @api private
       #
@@ -178,7 +179,7 @@ module Mongoid
         end
       end
 
-      # Bind the provided document with the base from the parent relation.
+      # Bind the provided document with the base from the parent association.
       #
       # @api private
       #

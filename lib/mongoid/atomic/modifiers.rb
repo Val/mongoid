@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Atomic
 
@@ -95,7 +96,7 @@ module Mongoid
       # @example Add unset operations.
       #   modifiers.unset([ "addresses" ])
       #
-      # @param [ Array<String> ] modifications The unset relation names.
+      # @param [ Array<String> ] modifications The unset association names.
       #
       # @since 2.2.0
       def unset(modifications)

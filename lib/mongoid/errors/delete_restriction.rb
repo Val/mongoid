@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Errors
 
@@ -13,7 +14,7 @@ module Mongoid
       #   Callbacks.new(Post, :create!)
       #
       # @param [ Class ] document
-      # @param [ Symbol ] relation
+      # @param [ Symbol ] association
       #
       # @since 3.0.0
       def initialize(document, relation)
@@ -27,4 +28,3 @@ module Mongoid
     end
   end
 end
-

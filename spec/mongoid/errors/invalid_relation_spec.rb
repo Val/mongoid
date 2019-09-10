@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -20,13 +21,13 @@ describe Mongoid::Errors::InvalidRelation do
 
     it "contains the problem in the message" do
       expect(error.message).to include(
-                                   "Defining a relation named 'crazy_method' is not allowed."
+                                   "Defining an association named 'crazy_method' is not allowed."
                                )
     end
 
     it "contains the summary in the message" do
       expect(error.message).to include(
-                                   "Defining this relation would override the method 'crazy_method'"
+                                   "Defining this association would override the method 'crazy_method'"
                                )
     end
 

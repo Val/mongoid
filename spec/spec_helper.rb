@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require 'lite_spec_helper'
 
@@ -17,9 +18,9 @@ else
 end
 
 # When testing locally we use the database named mongoid_test. However when
-# tests are running in parallel on Travis we need to use different database
-# names for each process running since we do not have transactions and want a
-# clean slate before each spec run.
+# tests are running in parallel in a CI environment we need to use different
+# database names for each process running since we do not have transactions
+# and want a clean slate before each spec run.
 def database_id
   "mongoid_test"
 end
@@ -30,10 +31,12 @@ end
 
 require 'support/authorization'
 require 'support/expectations'
+require 'support/macros'
+require 'support/cluster_config'
 require 'support/constraints'
 
-# Give MongoDB time to start up on the travis ci environment.
-if (ENV['CI'] == 'travis' || ENV['CI'] == 'evergreen')
+# Give MongoDB servers time to start up in CI environments
+if SpecConfig.instance.ci?
   starting = true
   client = Mongo::Client.new(SpecConfig.instance.addresses)
   while starting
@@ -53,13 +56,8 @@ CONFIG = {
       database: database_id,
       hosts: SpecConfig.instance.addresses,
       options: {
-        server_selection_timeout:
-          if SpecConfig.instance.jruby?
-            3
-          else
-            0.5
-          end,
-        wait_queue_timeout: 5,
+        server_selection_timeout: 3.42,
+        wait_queue_timeout: 1,
         max_pool_size: 5,
         heartbeat_frequency: 180,
         user: MONGOID_ROOT_USER.name,
@@ -96,22 +94,13 @@ def array_filters_supported?
 end
 alias :sessions_supported? :array_filters_supported?
 
-def testing_geo_near?
-  $geo_near_enabled ||= (Mongoid::Clients.default
-                             .command(serverStatus: 1)
-                             .first['version'] < '4.1')
-end
-
 def transactions_supported?
-  Mongoid::Clients.default.cluster.next_primary.features.transactions_enabled?
+  features = Mongoid::Clients.default.cluster.next_primary.features
+  features.respond_to?(:transactions_enabled?) && features.transactions_enabled?
 end
 
 def testing_transactions?
   transactions_supported? && testing_replica_set?
-end
-
-def testing_locally?
-  !(ENV['CI'] == 'travis')
 end
 
 # Set the database that the spec suite connects to.
@@ -152,9 +141,10 @@ RSpec.configure do |config|
   config.raise_errors_for_deprecations!
   config.include(Mongoid::Expectations)
   config.extend(Constraints)
+  config.extend(Mongoid::Macros)
 
   config.before(:suite) do
-    client = Mongo::Client.new(SpecConfig.instance.addresses)
+    client = Mongo::Client.new(SpecConfig.instance.addresses, server_selection_timeout: 3.03)
     begin
       # Create the root user administrator as the first user to be added to the
       # database. This user will need to be authenticated in order to add any
@@ -167,6 +157,11 @@ RSpec.configure do |config|
 
   # Drop all collections and clear the identity map before each spec.
   config.before(:each) do
+    cluster = Mongoid.default_client.cluster
+    # Older drivers do not have a #connected? method
+    if cluster.respond_to?(:connected?) && !cluster.connected?
+      Mongoid.default_client.reconnect
+    end
     Mongoid.default_client.collections.each do |coll|
       coll.delete_many
     end

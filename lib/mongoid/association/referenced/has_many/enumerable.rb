@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Association
     module Referenced
       class HasMany
         module Targets
 
-          # This class is the wrapper for all relational associations that have a
+          # This class is the wrapper for all referenced associations that have a
           # target that can be a criteria or array of _loaded documents. This
           # handles both cases or a combination of the two.
           class Enumerable
@@ -419,7 +420,7 @@ module Mongoid
             end
 
             # Resets the underlying unloaded criteria object with a new one. Used
-            # my HABTM relations to keep the underlying array in sync.
+            # my HABTM associations to keep the underlying array in sync.
             #
             # @example Reset the unloaded documents.
             #   enumerable.reset_unloaded(criteria)

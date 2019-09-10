@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Errors
 
@@ -13,7 +14,7 @@ module Mongoid
       #   NestedAttributesMetadataNotFound.new(klass, name)
       #
       # @param [ Class ] klass The class of the document.
-      # @param [ Symbol, String ] name The name of the relation
+      # @param [ Symbol, String ] name The name of the association
       #
       # @since 3.0.0
       def initialize(klass, name)

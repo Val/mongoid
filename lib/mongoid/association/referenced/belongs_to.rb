@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require 'mongoid/association/referenced/belongs_to/binding'
 require 'mongoid/association/referenced/belongs_to/buildable'
@@ -109,7 +110,7 @@ module Mongoid
                              default_foreign_key_field
         end
 
-        # Get the relation proxy class for this association type.
+        # Get the association proxy class for this association type.
         #
         # @return [ Association::BelongsTo::Proxy ] The proxy class.
         #
@@ -127,9 +128,9 @@ module Mongoid
           @polymorphic ||= !!@options[:polymorphic]
         end
 
-        # The name of the field used to store the type of polymorphic relation.
+        # The name of the field used to store the type of polymorphic association.
         #
-        # @return [ String ] The field used to store the type of polymorphic relation.
+        # @return [ String ] The field used to store the type of polymorphic association.
         #
         # @since 7.0
         def inverse_type

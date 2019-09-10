@@ -1,15 +1,16 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Association
     module Referenced
       class HasAndBelongsToMany
 
-        # Binding class for all has_and_belongs_to_many relations.
+        # Binding class for all has_and_belongs_to_many associations.
         class Binding
           include Bindable
 
-          # Binds a single document with the inverse relation. Used
+          # Binds a single document with the inverse association. Used
           # specifically when appending to the proxy.
           #
           # @example Bind one document.
@@ -54,11 +55,15 @@ module Mongoid
 
           # Find the inverse id referenced by inverse_keys
           def inverse_record_id(doc)
-            inverse_association = determine_inverse_association(doc)
-            if inverse_association
-              _base.__send__(inverse_association.primary_key)
+            if pk = _association.options[:inverse_primary_key]
+              _base.send(pk)
             else
-              _base._id
+              inverse_association = determine_inverse_association(doc)
+              if inverse_association
+                _base.__send__(inverse_association.primary_key)
+              else
+                _base._id
+              end
             end
           end
 

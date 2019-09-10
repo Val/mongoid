@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require 'spec_helper'
 
@@ -12,19 +13,19 @@ describe Mongoid::Errors::AmbiguousRelationship do
 
     it "contains the problem in the message" do
       expect(error.message).to include(
-        "Ambiguous relations :drugs, :evil_drugs defined on Person."
+        "Ambiguous associations :drugs, :evil_drugs defined on Person."
       )
     end
 
     it "contains the summary in the message" do
       expect(error.message).to include(
-        "When Mongoid attempts to set an inverse document of a relation in memory"
+        "When Mongoid attempts to set an inverse document of an association in memory"
       )
     end
 
     it "contains the resolution in the message" do
       expect(error.message).to include(
-        "On the :person relation on Drug you must add an :inverse_of option"
+        "On the :person association on Drug you must add an :inverse_of option"
       )
     end
   end

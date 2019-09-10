@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Errors
 
-    # Raised when trying to set a polymorphic "references in" relation to a
-    # model with multiple "references many/one" relations pointing to that
+    # Raised when trying to set a polymorphic "references in" association to a
+    # model with multiple "references many/one" associations pointing to that
     # first model.
     #
-    # @example Invalid setting of a polymorphic relation.
+    # @example Invalid setting of a polymorphic association.
     #   class Face
     #     include Mongoid::Document
     #
@@ -27,7 +28,7 @@ module Mongoid
 
     class InvalidSetPolymorphicRelation < MongoidError
 
-      # Create the new invalid set polymorphic relation error.
+      # Create the new invalid set polymorphic association error.
       #
       # @example Create the error.
       #   InvalidSetPolymorphicRelation.new

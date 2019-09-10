@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   class Criteria
 
@@ -18,8 +19,8 @@ module Mongoid
         PersistenceContext.set(klass, options)
       end
 
-      def clear_persistence_context(original_cluster)
-        PersistenceContext.clear(klass, original_cluster)
+      def clear_persistence_context(original_cluster, original_context)
+        PersistenceContext.clear(klass, original_cluster, original_context)
       end
     end
   end

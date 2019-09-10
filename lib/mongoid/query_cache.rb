@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
 
   # A cache of database queries on a per-request basis.
@@ -139,7 +140,9 @@ module Mongoid
       # @since 5.0.0
       def each
         if @cached_documents
-          @cached_documents.each{ |doc| yield doc }
+          @cached_documents.each do |doc|
+            yield doc
+          end
         else
           super
         end
@@ -164,7 +167,9 @@ module Mongoid
         @cursor_id = result.cursor_id
         @coll_name ||= result.namespace.sub("#{database.name}.", '') if result.namespace
         documents = result.documents
-        (@cached_documents ||= []).concat(documents) if @cursor_id.zero? && !@after_first_batch
+        if @cursor_id.zero? && !@after_first_batch
+          (@cached_documents ||= []).concat(documents)
+        end
         @after_first_batch = true
         documents
       end
@@ -244,8 +249,7 @@ module Mongoid
           key = [ collection.namespace, selector, nil, skip, sort, projection, collation  ]
           cursor = QueryCache.cache_table[key]
           if cursor
-            limited_docs = cursor.to_a[0...limit.abs]
-            cursor.instance_variable_set(:@cached_documents, limited_docs)
+            cursor.to_a[0...limit.abs]
           end
         end
         cursor || QueryCache.cache_table[cache_key]
@@ -256,7 +260,7 @@ module Mongoid
       end
 
       def system_collection?
-        collection.namespace =~ /^system./
+        collection.namespace =~ /\Asystem./
       end
     end
 

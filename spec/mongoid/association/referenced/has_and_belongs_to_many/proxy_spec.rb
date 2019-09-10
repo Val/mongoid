@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# encoding: utf-8
 
 require "spec_helper"
 
@@ -2880,9 +2881,13 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
       person.preferences
     end
 
-    Array.public_instance_methods.each do |method|
+    Array.public_instance_methods.sort.each do |method|
 
-      context "when checking #{method}" do
+      context "when checking Array##{method}" do
+
+        before do
+          expect([].respond_to?(method)).to be true
+        end
 
         it "returns true" do
           expect(preferences.respond_to?(method)).to be true
@@ -2890,9 +2895,9 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
       end
     end
 
-    Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy.public_instance_methods.each do |method|
+    Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy.public_instance_methods.sort.each do |method|
 
-      context "when checking #{method}" do
+      context "when checking Proxy##{method}" do
 
         it "returns true" do
           expect(preferences.respond_to?(method)).to be true
@@ -2900,9 +2905,9 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
       end
     end
 
-    Preference.scopes.keys.each do |method|
+    Preference.scopes.keys.sort.each do |method|
 
-      context "when checking #{method}" do
+      context "when checking scope #{method}" do
 
         it "returns true" do
           expect(preferences.respond_to?(method)).to be true

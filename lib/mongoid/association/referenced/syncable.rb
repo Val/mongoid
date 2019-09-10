@@ -1,15 +1,16 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Association
     module Referenced
 
       # This module handles the behavior for synchronizing foreign keys between
-      # both sides of a many to many relations.
+      # both sides of a many to many associations.
       module Syncable
 
         # Is the document able to be synced on the inverse side? This is only if
-        # the key has changed and the relation bindings have not been run.
+        # the key has changed and the association bindings have not been run.
         #
         # @example Are the foreign keys syncable?
         #   document._syncable?(association)
@@ -66,7 +67,7 @@ module Mongoid
           end
         end
 
-        # Update the inverse keys for the relation.
+        # Update the inverse keys for the association.
         #
         # @example Update the inverse keys
         #   document.update_inverse_keys(association)
@@ -129,7 +130,7 @@ module Mongoid
           # @example Set up the save syncing.
           #   Person.synced_save(association)
           #
-          # @param [ Association ] association The relation association.
+          # @param [ Association ] association The association metadata.
           #
           # @return [ Class ] The class getting set up.
           #

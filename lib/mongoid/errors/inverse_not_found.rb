@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Errors
 
@@ -12,7 +13,7 @@ module Mongoid
       #   InverseNotFound.new(Town, :citizens, Person, :town_id)
       #
       # @param [ Class ] base The base class.
-      # @param [ Symbol ] name The name of the relation.
+      # @param [ Symbol ] name The name of the association.
       # @param [ Class ] klass The child class.
       # @param [ Symbol ] inverse The attempted inverse key.
       #

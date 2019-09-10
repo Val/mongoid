@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Extensions
     module Array
@@ -59,7 +60,7 @@ module Mongoid
         ::Time.configured.local(*self)
       end
 
-      # Check if the array is part of a blank relation criteria.
+      # Check if the array is part of a blank association criteria.
       #
       # @example Is the array blank criteria?
       #   [].blank_criteria?

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
+
 module Mongoid
   module Validatable
 
@@ -25,8 +26,8 @@ module Mongoid
       #   validator.validate_each(document, :name, name)
       #
       # @param [ Document ] document The document to validate.
-      # @param [ Symbol ] attribute The relation to validate.
-      # @param [ Object ] value The value of the relation.
+      # @param [ Symbol ] attribute The association to validate.
+      # @param [ Object ] value The value of the association.
       #
       # @since 2.0.0
       def validate_each(document, attribute, value)
