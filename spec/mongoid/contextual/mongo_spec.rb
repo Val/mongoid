@@ -109,11 +109,8 @@ describe Mongoid::Contextual::Mongo do
         described_class.new(criteria.cache)
       end
 
-      before do
-        expect(context.view).to receive(:count).once.and_return(1)
-      end
-
       it "returns the count cached value after first call" do
+        expect(context.view).to receive(:count_documents).once.and_return(1)
         2.times { expect(context.count).to eq(1) }
       end
     end
@@ -171,7 +168,8 @@ describe Mongoid::Contextual::Mongo do
       end
     end
 
-    context 'when a collation is specified', if: collation_supported? do
+    context 'when a collation is specified' do
+      min_server_version '3.4'
 
       let(:context) do
         described_class.new(criteria)
@@ -193,6 +191,71 @@ describe Mongoid::Contextual::Mongo do
       end
     end
   end
+
+  describe "#estimated_count" do
+
+    let!(:depeche) do
+      Band.create(name: "Depeche Mode")
+    end
+
+    let!(:new_order) do
+      Band.create(name: "New Order")
+    end
+
+    let(:criteria) do
+      Band.where
+    end
+
+    context "when not providing options" do
+      it 'returns the correct count' do
+        expect(criteria.estimated_count).to eq(2)
+      end
+    end
+
+    context "when providing options" do
+      it 'returns the correct count' do
+        expect(criteria.estimated_count(maxTimeMS: 1000)).to eq(2)
+      end
+    end
+
+    context "when context is cached" do
+
+      let(:context) do
+        described_class.new(criteria.cache)
+      end
+
+      it "returns the count cached value after first call" do
+        expect(context.view).to receive(:estimated_document_count).once.and_return(1)
+        2.times do
+          context.estimated_count
+        end
+      end
+    end
+
+    context "when the criteria contains a selector", :focus do
+      let(:criteria) do
+        Band.where(name: "New Order")
+      end
+
+      context "when not providing options" do
+        it 'raises an error' do
+          expect do
+            criteria.estimated_count
+          end.to raise_error(Mongoid::Errors::InvalidEstimatedCountCriteria)
+        end
+      end
+
+      context "when providing options" do
+        it 'raises an error' do
+          expect do
+            criteria.estimated_count(maxTimeMS: 1000)
+          end.to raise_error(Mongoid::Errors::InvalidEstimatedCountCriteria)
+        end
+      end
+    end
+  end
+
+
 
   [ :delete, :delete_all ].each do |method|
 
@@ -232,7 +295,8 @@ describe Mongoid::Contextual::Mongo do
           expect(deleted).to eq(1)
         end
 
-        context 'when the criteria has a collation', if: collation_supported? do
+        context 'when the criteria has a collation' do
+          min_server_version '3.4'
 
           let(:criteria) do
             Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -336,7 +400,8 @@ describe Mongoid::Contextual::Mongo do
           expect(destroyed).to eq(1)
         end
 
-        context 'when the criteria has a collation', if: collation_supported? do
+        context 'when the criteria has a collation' do
+          min_server_version '3.4'
 
           let(:criteria) do
             Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -458,7 +523,8 @@ describe Mongoid::Contextual::Mongo do
       end
     end
 
-    context 'when a collation is specified', if: collation_supported? do
+    context 'when a collation is specified' do
+      min_server_version '3.4'
 
       before do
         Band.create(name: 'DEPECHE MODE')
@@ -496,7 +562,8 @@ describe Mongoid::Contextual::Mongo do
       described_class.new(criteria)
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let(:criteria) do
         Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -853,7 +920,8 @@ describe Mongoid::Contextual::Mongo do
         end
       end
 
-      context 'when a collation is specified on the criteria', if: collation_supported? do
+      context 'when a collation is specified on the criteria' do
+        min_server_version '3.4'
 
         let(:criteria) do
           Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -1006,7 +1074,8 @@ describe Mongoid::Contextual::Mongo do
         end
       end
 
-      context 'when a collation is specified on the criteria', if: collation_supported? do
+      context 'when a collation is specified on the criteria' do
+        min_server_version '3.4'
 
         let(:criteria) do
           Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -1080,7 +1149,8 @@ describe Mongoid::Contextual::Mongo do
         }.to raise_error(Mongoid::Errors::DocumentNotFound)
       end
 
-      context 'when a collation is specified on the criteria', if: collation_supported? do
+      context 'when a collation is specified on the criteria' do
+        min_server_version '3.4'
 
         let(:criteria) do
           Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -1152,7 +1222,8 @@ describe Mongoid::Contextual::Mongo do
           expect(context.send(method)).to eq(depeche_mode)
         end
 
-        context 'when the criteria has a collation', if: collation_supported? do
+        context 'when the criteria has a collation' do
+          min_server_version '3.4'
 
           let(:criteria) do
             Band.where(name: "DEPECHE MODE").collation(locale: 'en_US', strength: 2)
@@ -1390,12 +1461,8 @@ describe Mongoid::Contextual::Mongo do
         end
 
         context "when calling more than once" do
-
-          before do
-            expect(context.view).to receive(:count).once.and_return(2)
-          end
-
           it "returns the cached value for subsequent calls" do
+            expect(context.view).to receive(:count_documents).once.and_return(2)
             2.times { expect(context.send(method)).to eq(2) }
           end
         end
@@ -1404,10 +1471,10 @@ describe Mongoid::Contextual::Mongo do
 
           before do
             context.entries
-            expect(context.view).to receive(:count).once.and_return(2)
           end
 
           it "returns the cached value for all calls" do
+            expect(context.view).to receive(:count_documents).once.and_return(2)
             expect(context.send(method)).to eq(2)
           end
 
@@ -1439,12 +1506,8 @@ describe Mongoid::Contextual::Mongo do
         end
 
         context "when calling more than once" do
-
-          before do
-            expect(context.view).to receive(:count).once.and_return(1)
-          end
-
           it "returns the cached value for subsequent calls" do
+            expect(context.view).to receive(:count_documents).once.and_return(1)
             2.times { expect(context.send(method)).to eq(1) }
           end
         end
@@ -1453,10 +1516,10 @@ describe Mongoid::Contextual::Mongo do
 
           before do
             context.entries
-            expect(context.view).to receive(:count).once.and_return(1)
           end
 
           it "returns the cached value for all calls" do
+            expect(context.view).to receive(:count_documents).once.and_return(1)
             expect(context.send(method)).to eq(1)
           end
 
@@ -1556,6 +1619,10 @@ describe Mongoid::Contextual::Mongo do
       }}
     end
 
+    let(:ordered_results) do
+      results['results'].sort_by { |doc| doc['_id'] }
+    end
+
     context "when no selection is provided" do
 
       let(:criteria) do
@@ -1587,36 +1654,40 @@ describe Mongoid::Contextual::Mongo do
       end
 
       it "contains the entire raw results" do
-        expect(results["results"]).to eq([
+        expect(ordered_results).to eq([
           { "_id" => "Depeche Mode", "value" => { "likes" => 200 }},
           { "_id" => "Tool", "value" => { "likes" => 100 }}
         ])
       end
 
-      it "contains the execution time" do
-        expect(results.time).to_not be_nil
-      end
+      context 'when statistics are available' do
+        max_server_version '4.2'
 
-      it "contains the count statistics" do
-        expect(results["counts"]).to eq({
-          "input" => 2, "emit" => 2, "reduce" => 0, "output" => 2
-        })
-      end
+        it "contains the execution time" do
+          expect(results.time).to_not be_nil
+        end
 
-      it "contains the input count" do
-        expect(results.input).to eq(2)
-      end
+        it "contains the count statistics" do
+          expect(results["counts"]).to eq({
+            "input" => 2, "emit" => 2, "reduce" => 0, "output" => 2
+          })
+        end
 
-      it "contains the emitted count" do
-        expect(results.emitted).to eq(2)
-      end
+        it "contains the input count" do
+          expect(results.input).to eq(2)
+        end
 
-      it "contains the reduced count" do
-        expect(results.reduced).to eq(0)
-      end
+        it "contains the emitted count" do
+          expect(results.emitted).to eq(2)
+        end
 
-      it "contains the output count" do
-        expect(results.output).to eq(2)
+        it "contains the reduced count" do
+          expect(results.reduced).to eq(0)
+        end
+
+        it "contains the output count" do
+          expect(results.output).to eq(2)
+        end
       end
     end
 
@@ -1645,35 +1716,39 @@ describe Mongoid::Contextual::Mongo do
       end
 
       it "contains the entire raw results" do
-        expect(results["results"]).to eq([
+        expect(ordered_results).to eq([
           { "_id" => "Depeche Mode", "value" => { "likes" => 200 }}
         ])
       end
 
-      it "contains the execution time" do
-        expect(results.time).to_not be_nil
-      end
+      context 'when statistics are available' do
+        max_server_version '4.2'
 
-      it "contains the count statistics" do
-        expect(results["counts"]).to eq({
-          "input" => 1, "emit" => 1, "reduce" => 0, "output" => 1
-        })
-      end
+        it "contains the execution time" do
+          expect(results.time).to_not be_nil
+        end
 
-      it "contains the input count" do
-        expect(results.input).to eq(1)
-      end
+        it "contains the count statistics" do
+          expect(results["counts"]).to eq({
+            "input" => 1, "emit" => 1, "reduce" => 0, "output" => 1
+          })
+        end
 
-      it "contains the emitted count" do
-        expect(results.emitted).to eq(1)
-      end
+        it "contains the input count" do
+          expect(results.input).to eq(1)
+        end
 
-      it "contains the reduced count" do
-        expect(results.reduced).to eq(0)
-      end
+        it "contains the emitted count" do
+          expect(results.emitted).to eq(1)
+        end
 
-      it "contains the output count" do
-        expect(results.output).to eq(1)
+        it "contains the reduced count" do
+          expect(results.reduced).to eq(0)
+        end
+
+        it "contains the output count" do
+          expect(results.output).to eq(1)
+        end
       end
     end
 
@@ -1713,7 +1788,7 @@ describe Mongoid::Contextual::Mongo do
       end
 
       it "contains the entire raw results" do
-        expect(results["results"]).to eq([
+        expect(ordered_results).to eq([
           { "_id" => "Depeche Mode", "value" => { "likes" => 200 }},
           { "_id" => "Tool", "value" => { "likes" => 100 }}
         ])
@@ -1830,6 +1905,8 @@ describe Mongoid::Contextual::Mongo do
     end
 
     context "when the output specifies a different db" do
+      # Limit is not supported in sharded clusters
+      require_topology :single, :replica_set
 
       let(:criteria) do
         Band.limit(1)
@@ -2164,7 +2241,8 @@ describe Mongoid::Contextual::Mongo do
       end
     end
 
-    context 'when provided array filters', if: array_filters_supported? do
+    context 'when provided array filters' do
+      min_server_version '3.6'
 
       before do
         Band.delete_all
@@ -2336,7 +2414,8 @@ describe Mongoid::Contextual::Mongo do
       end
     end
 
-    context 'when provided array filters', if: array_filters_supported? do
+    context 'when provided array filters' do
+      min_server_version '3.6'
 
       before do
         Band.delete_all
@@ -2374,7 +2453,7 @@ describe Mongoid::Contextual::Mongo do
 
   describe '#pipeline' do
 
-    context 'when the criteria has a selector', if: non_legacy_server? do
+    context 'when the criteria has a selector' do
 
       before do
         Artist.index(name: "text")

@@ -48,7 +48,7 @@ describe Mongoid::Indexable do
       end
     end
 
-    context "when database specific options exist", if: non_legacy_server? do
+    context "when database specific options exist" do
 
       let(:klass) do
         Class.new do
@@ -98,7 +98,7 @@ describe Mongoid::Indexable do
       end
     end
 
-    context "when database options are specified", if: non_legacy_server? do
+    context "when database options are specified" do
 
       let(:klass) do
         Class.new do
@@ -136,7 +136,8 @@ describe Mongoid::Indexable do
       end
     end
 
-    context "when a collation option is specified", if: collation_supported? do
+    context "when a collation option is specified" do
+      min_server_version '3.4'
 
       let(:klass) do
         Class.new do
@@ -188,6 +189,32 @@ describe Mongoid::Indexable do
 
       it "adds the _type index" do
         expect(spec.options).to eq(unique: false, background: true)
+      end
+    end
+
+    context "when using a custom discriminator_key" do 
+      context "when indexes have not been added" do
+        let(:klass) do
+          Class.new do
+            include Mongoid::Document
+            self.discriminator_key = "dkey"
+            def self.hereditary?
+              true
+            end
+          end
+        end
+  
+        before do
+          klass.add_indexes
+        end
+  
+        let(:spec) do
+          klass.index_specification(dkey: 1)
+        end
+  
+        it "adds the _type index" do
+          expect(spec.options).to eq(unique: false, background: true)
+        end
       end
     end
   end
@@ -311,7 +338,8 @@ describe Mongoid::Indexable do
       end
     end
 
-    context "when providing a collation option", if: collation_supported? do
+    context "when providing a collation option" do
+      min_server_version '3.4'
 
       before do
         klass.index({ name: 1 }, collation: { locale: 'en_US', strength: 2 })
@@ -381,7 +409,7 @@ describe Mongoid::Indexable do
       end
     end
 
-    context "when providing a geospacial index" do
+    context "when providing a geospatial index" do
 
       before do
         klass.index({ location: "2d" }, { min: -200, max: 200, bits: 32 })
@@ -391,7 +419,7 @@ describe Mongoid::Indexable do
         klass.index_specification(location: "2d").options
       end
 
-      it "sets the geospacial index" do
+      it "sets the geospatial index" do
         expect(options).to eq({ min: -200, max: 200, bits: 32 })
       end
     end

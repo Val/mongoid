@@ -13,8 +13,16 @@ module Mongoid
     # We need to redefine where the JSON configuration is getting defined,
     # similar to +ActiveRecord+.
     included do
-      undef_method :include_root_in_json
-      delegate :include_root_in_json, to: ::Mongoid
+
+      class << self
+        # Note that this intentionally only delegates :include_root_in_json
+        # and not :include_root_in_json? - delegating the latter produces
+        # wrong behavior.
+        # Also note that this intentionally uses the ActiveSupport delegation
+        # functionality and not the Ruby standard library one.
+        # See https://jira.mongodb.org/browse/MONGOID-4849.
+        delegate :include_root_in_json, to: ::Mongoid
+      end
     end
 
     # Gets the document as a serializable hash, used by ActiveModel's JSON
@@ -72,7 +80,7 @@ module Mongoid
 
       only = Array.wrap(options[:only]).map(&:to_s)
       except = Array.wrap(options[:except]).map(&:to_s)
-      except |= ['_type'] unless Mongoid.include_type_for_serialization
+      except |= [self.class.discriminator_key] unless Mongoid.include_type_for_serialization
 
       if !only.empty?
         names &= only

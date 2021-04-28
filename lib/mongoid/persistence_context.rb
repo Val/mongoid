@@ -110,9 +110,22 @@ module Mongoid
     #
     # @since 6.0.0
     def client
-      @client ||= (client = Clients.with_name(client_name)
-                    client = client.use(database_name) if database_name_option
-                    client.with(client_options))
+      @client ||= begin
+        client = Clients.with_name(client_name)
+        if database_name_option
+          client = client.use(database_name)
+        end
+        unless client_options.empty?
+          client = client.with(client_options)
+        end
+        client
+      end
+    end
+
+    def client_name
+      @client_name ||= options[:client] ||
+                         Threaded.client_override ||
+                         storage_options && __evaluate__(storage_options[:client])
     end
 
     # Determine if this persistence context is equal to another.
@@ -131,12 +144,6 @@ module Mongoid
     end
 
     private
-
-    def client_name
-      @client_name ||= options[:client] ||
-                         Threaded.client_override ||
-                         storage_options && __evaluate__(storage_options[:client])
-    end
 
     def set_options!(opts)
       @options ||= opts.each.reduce({}) do |_options, (key, value)|

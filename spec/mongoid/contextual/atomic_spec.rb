@@ -77,7 +77,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let(:criteria) do
         Band.where(members: [ "DAVE" ]).collation(locale: 'en_US', strength: 2)
@@ -173,7 +174,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let(:criteria) do
         Band.where(members: [ "DAVE" ]).collation(locale: 'en_US', strength: 2)
@@ -244,7 +246,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ], likes: 60)
@@ -323,7 +326,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -395,7 +399,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -449,7 +454,8 @@ describe Mongoid::Contextual::Atomic do
       expect(smiths.reload.members).to be_nil
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -506,7 +512,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave", "Alan", "Fletch" ])
@@ -563,7 +570,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -628,7 +636,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -689,7 +698,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(members: [ "Dave" ])
@@ -743,12 +753,25 @@ describe Mongoid::Contextual::Atomic do
       context.set(name: "Recoil")
     end
 
-    it "sets existing fields" do
-      expect(depeche_mode.reload.name).to eq("Recoil")
+    shared_examples 'writes as expected' do
+      it "sets existing fields" do
+        expect(depeche_mode.reload.name).to eq("Recoil")
+      end
+
+      it "sets non existent fields" do
+        expect(smiths.reload.name).to eq("Recoil")
+      end
     end
 
-    it "sets non existent fields" do
-      expect(smiths.reload.name).to eq("Recoil")
+    include_examples 'writes as expected'
+
+    context 'when fields being set have been projected out' do
+
+      let(:criteria) do
+        Band.only(:genres)
+      end
+
+      include_examples 'writes as expected'
     end
   end
 
@@ -848,7 +871,8 @@ describe Mongoid::Contextual::Atomic do
       end
     end
 
-    context 'when the criteria has a collation', if: collation_supported? do
+    context 'when the criteria has a collation' do
+      min_server_version '3.4'
 
       let!(:depeche_mode) do
         Band.create(name: "Depeche Mode", years: 10)

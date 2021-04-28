@@ -8,15 +8,19 @@ class SpecConfig
 
   def initialize
     if ENV['MONGODB_URI']
-      @mongodb_uri = Mongo::URI.new(ENV['MONGODB_URI'])
+      @uri_str = ENV['MONGODB_URI']
+      @uri = Mongo::URI.new(@uri_str)
     end
   end
 
+  attr_reader :uri_str
+  attr_reader :uri
+
   def addresses
-    if @mongodb_uri
-      @mongodb_uri.servers
+    if @uri
+      @uri.servers
     else
-      ['127.0.0.1']
+      ['127.0.0.1:27017']
     end
   end
 
@@ -33,10 +37,22 @@ class SpecConfig
   end
 
   def client_debug?
-    %w(1 true yes).include?((ENV['CLIENT_DEBUG'] || '').downcase)
+    %w(1 true yes).include?(ENV['CLIENT_DEBUG']&.downcase)
+  end
+
+  def app_tests?
+    %w(1 true yes).include?(ENV['APP_TESTS']&.downcase)
   end
 
   def ci?
     !!ENV['CI']
+  end
+
+  def rails_version
+    v = ENV['RAILS']
+    if v == ''
+      v = nil
+    end
+    v || '6.1'
   end
 end

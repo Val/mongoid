@@ -3,7 +3,7 @@
 
 require "support/ruby_version"
 
-require "delegate"
+require "forwardable"
 require "time"
 require "set"
 
@@ -15,6 +15,7 @@ require "active_support/time_with_zone"
 require "active_model"
 
 require "mongo"
+require 'mongo/active_support'
 
 require "mongoid/version"
 require "mongoid/config"
@@ -35,6 +36,7 @@ end
 I18n.load_path << File.join(File.dirname(__FILE__), "config", "locales", "en.yml")
 
 module Mongoid
+  extend Forwardable
   extend Loggable
   extend self
 
@@ -108,5 +110,28 @@ module Mongoid
   #   Mongoid.database = Mongo::Connection.new.db("test")
   #
   # @since 1.0.0
-  delegate(*(Config.public_instance_methods(false) - [ :logger=, :logger ] << { to: Config }))
+  def_delegators Config, *(Config.public_instance_methods(false) - [ :logger=, :logger ])
+
+
+  # Module used to prepend the discriminator key assignment function to change
+  # the value assigned to the discriminator key to a string.
+  #
+  # @api private
+  module GlobalDiscriminatorKeyAssignment
+    # This class is used for obtaining the method definition location for
+    # Mongoid methods.
+    class InvalidFieldHost
+      include Mongoid::Document
+    end
+
+    def discriminator_key=(value)
+      Mongoid::Fields::Validators::Macro.validate_field_name(InvalidFieldHost, value)
+      value = value.to_s
+      super
+    end
+  end
+
+  class << self
+    prepend GlobalDiscriminatorKeyAssignment
+  end
 end

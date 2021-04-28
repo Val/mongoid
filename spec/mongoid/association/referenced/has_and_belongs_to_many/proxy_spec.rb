@@ -1757,6 +1757,43 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
       end
     end
 
+    describe "#any?" do
+
+      let(:person) do
+        Person.create
+      end
+
+      context "when nothing exists on the relation" do
+
+        context "when no document is added" do
+
+          let!(:sandwich) do
+            Sandwich.create!
+          end
+
+          it "returns false" do
+            expect(sandwich.meats.any?).to be false
+          end
+        end
+
+        context "when the document is destroyed" do
+
+          before do
+            Meat.create!
+          end
+
+          let!(:sandwich) do
+            Sandwich.create!
+          end
+
+          it "returns false" do
+            sandwich.destroy
+            expect(sandwich.meats.any?).to be false
+          end
+        end
+      end
+    end
+
     context "when documents have been persisted" do
 
       let!(:preference) do
@@ -1842,6 +1879,107 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
         it "returns 0" do
           expect(person.preferences.count).to eq(0)
         end
+      end
+    end
+  end
+
+  describe "#any?" do
+
+    let(:sandwich) do
+      Sandwich.create
+    end
+
+    context "when nothing exists on the relation" do
+
+      context "when no document is added" do
+
+        let!(:sandwich) do
+          Sandwich.create!
+        end
+
+        it "returns false" do
+          expect(sandwich.meats.any?).to be false
+        end
+      end
+
+      context "when the document is destroyed" do
+
+        before do
+          Meat.create!
+        end
+
+        let!(:sandwich) do
+          Sandwich.create!
+        end
+
+        it "returns false" do
+          sandwich.destroy
+          expect(sandwich.meats.any?).to be false
+        end
+      end
+    end
+
+    context "when appending to a relation and _loaded/_unloaded are empty" do
+
+      let!(:sandwich) do
+        Sandwich.create!
+      end
+
+      before do
+        sandwich.meats << Meat.new
+      end
+
+      it "returns true" do
+        expect(sandwich.meats.any?).to be true
+      end
+    end
+
+    context "when appending to a relation in a transaction" do
+      require_transaction_support
+
+      let!(:sandwich) do
+        Sandwich.create!
+      end
+
+      it "returns true" do
+        sandwich.with_session do |session|
+          session.with_transaction do
+            expect{ sandwich.meats << Meat.new }.to_not raise_error
+            expect(sandwich.meats.any?).to be true
+          end
+        end
+      end
+    end
+
+    context "when documents have been persisted" do
+
+      let!(:meat) do
+        sandwich.meats.create
+      end
+
+      it "returns true" do
+        expect(sandwich.meats.any?).to be true
+      end
+    end
+
+    context "when documents have not been persisted" do
+
+      let!(:meat) do
+        sandwich.meats.build
+      end
+
+      it "returns false" do
+        expect(sandwich.meats.any?).to be true
+      end
+    end
+
+    context "when new documents exist in the database" do
+      before do
+        Meat.create(sandwiches: [sandwich])
+      end
+
+      it "returns true" do
+        expect(sandwich.meats.any?).to be true
       end
     end
   end
@@ -2689,7 +2827,8 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
         expect(preferences).to eq([ preference_one ])
       end
 
-      context 'when providing a collation', if: collation_supported? do
+      context 'when providing a collation' do
+        min_server_version '3.4'
 
         let(:preferences) do
           person.preferences.where(name: "FIRST").collation(locale: 'en_US', strength: 2).to_a
@@ -2918,20 +3057,36 @@ describe Mongoid::Association::Referenced::HasAndBelongsToMany::Proxy do
 
   describe "#scoped" do
 
-    let(:person) do
-      Person.new
-    end
-
     let(:scoped) do
       person.preferences.scoped
     end
 
-    it "returns the relation criteria" do
-      expect(scoped).to be_a(Mongoid::Criteria)
+    context 'when association is empty' do
+
+      let(:person) do
+        Person.new
+      end
+
+      it "returns the relation criteria" do
+        expect(scoped).to be_a(Mongoid::Criteria)
+      end
+
+      it "returns with an empty selector" do
+        expect(scoped.selector).to eq("_id" => { "$in" => [] })
+      end
     end
 
-    it "returns with an empty selector" do
-      expect(scoped.selector).to eq({ "$and" => [{ "_id" => { "$in" => [] }}]})
+    context 'when association is not empty' do
+
+      let(:person) do
+        Person.create!(preferences: [
+          Preference.new(id: 123),
+        ])
+      end
+
+      it "returns with a selector including association element ids" do
+        expect(scoped.selector).to eq("_id" => { "$in" => [123] })
+      end
     end
   end
 

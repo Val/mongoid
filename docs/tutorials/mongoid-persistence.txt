@@ -1,6 +1,6 @@
-===================
-Persistence Methods
-===================
+***********
+Persistence
+***********
 
 .. default-domain:: mongodb
 
@@ -20,7 +20,7 @@ The persistence sections will provide examples on what database operation is
 performed when executing the documented command.
 
 Standard
---------
+========
 
 Mongoid's standard persistence methods come in the form of common methods you
 would find in other mapping frameworks. The following table shows all standard
@@ -293,7 +293,7 @@ Mongoid provides the following persistence-related attributes:
 
 
 Atomic
-------
+======
 
 Although Mongoid performs atomic operations under the covers by default,
 there may be cases where you want to do this explicitly without persisting
@@ -443,8 +443,10 @@ are not invoked.
 
           person.unset(:name)
 
+.. _atomic-operation-grouping:
+
 Atomic Operation Grouping
-*************************
+-------------------------
 
 Atomic operations may be grouped together using the ``#atomically`` method
 on a document. All operations inside the block given to ``#atomically``
@@ -472,10 +474,12 @@ changes performed by each block as soon as the block ends:
   end
 
 This behavior can be changed by specifying the ``join_context: true`` option
-to ``#atomically``. When using this option, nested ``#atomically`` blocks
-are joined with the outer blocks, and only the outermost block (or the
-first block where ``join_contexts`` is false) actually writes changes to
-the cluster. For example:
+to ``#atomically``, or globally by setting the ``join_contexts``
+:ref:`configuration option <configuration-options>` to ``true``. When
+context joining is enabled, nested ``#atomically`` blocks are joined with
+the outer blocks, and only the outermost block (or the first block where
+``join_contexts`` is false) actually writes changes to the cluster.
+For example:
 
 .. code-block:: ruby
 
@@ -518,19 +522,37 @@ However, MongoDB offers :ref:`multi-document transactions <transactions>`
 as of server version 4.0 which provide atomic persistence across multiple
 documents.
 
+Persistence Context Attributes
+==============================
+
+Mongoid provides ``client_name``, ``database_name`` and ``collection_name``
+methods on model classes to determine the client, database and collection names
+used for persistence:
+
+.. code-block:: ruby
+
+  Band.client_name
+  # => :default
+  
+  Band.database_name
+  # => "mongoid"
+  
+  Band.collection_name
+  # => :bands
+
 Custom
-------
+======
 
 There may be cases where you want to persist documents to different sources from their
 defaults, or with different options from the default. Mongoid provides run-time support
 for this as well as support on a per-model basis.
 
-Model Level Persistence Options
-*******************************
+Model-Level Persistence Options
+-------------------------------
 
 On a per-model basis, you can tell it to store in a custom collection name, a different
 database, or a different client. The following example would store the Band class by
-default into a collection named "artists" in the database named "music", with the client "secondary".
+default into a collection named "artists" in the database named "music", with the client "analytics".
 
 Note that the value supplied to the ``client`` option must be configured under ``clients``
 in your mongoid.yml.
@@ -539,51 +561,80 @@ in your mongoid.yml.
 
   class Band
     include Mongoid::Document
-    store_in collection: "artists", database: "music", client: "secondary"
+    store_in collection: "artists", database: "music", client: "analytics"
   end
 
 If no ``store_in`` macro would have been provided, Mongoid would store the model in a
 collection named "bands" in the default database in the default client.
 
 Runtime Persistence Options
-***************************
+---------------------------
 
-You can change at runtime where to store, query, update, or remove documents by prefixing
-any operation with ``#with`` and passing a block.
-
-.. code-block:: ruby
-
-   Band.with(database: "music-non-stop") do |klass|
-     klass.create
-   end
-   Band.with(collection: "artists") do |klass|
-     klass.delete_all
-   end
-   band.with(client: :tertiary) do |band_object|
-     band_object.save!
-   end
-
-Persisting using with is a one-time switch in the persistence context - it creates a new
-client under the covers which will get closed and garbage collected after use. Mongoid will not remember
-anything specific on the document level regarding how it was saved when using this method.
-A potential gotcha with this is persisting a document via with and then immediately updating it after.
+It is possible to change the client, database and collection, as well as
+any of the MongoDB client options, used for persistence for a group of
+operations by using the ``with`` method on a model class or instance:
 
 .. code-block:: ruby
 
-   band = Band.new(name: "Scuba")
-   band.with(collection: "artists") do |band_object|
-     band_object.save!
-   end
-   band.update_attribute(likes: 1000) # This will not save - queries the collection "bands"
-   band.with(collection: "artists") do |band_object|
-     band_object.update_attribute(likes: 1000) # This will update the document.
-   end
+  Band.with(database: "music-non-stop") do |klass|
+    klass.create(...)
+    
+    band = Band.first
+    
+    Band.create(...)
+  end
+  
+  Band.with(collection: "artists") do |klass|
+    klass.delete_all
+    
+    Band.delete_all
+  end
+  
+  band.with(client: :tertiary) do |band_object|
+    band_object.save!
+    
+    band.save!
+  end
 
-The Mongoid API was changed in version 6.0 to always require that a block be passed to #with. This is because
-a new client is created under the covers with the options passed to #with. A new client may spin up new
-monitor threads for keeping track of the MongoDB cluster, depending on what options are specified. This may in
-turn cause the number of connections to continually grow with each use of #with. Now that a block is required,
-Mongoid can properly stop the monitor threads and close the client after the block is called.
+The ``with`` method creates a temporary persistence context and a MongoDB
+client to be used for operations in the context. For the duration of the block,
+the persistence context on the model class or instance that ``with`` was
+called on is changed to the temporary persistence context. For convenience,
+the model class or instance that ``with`` was called on is yielded to the
+block.
+
+The temporary persistence context applies to both queries and writes.
+
+Care should be taken when performing persistence operations across different
+persistence contexts. For example, if a document is saved in a temporary
+persistence context, it may not exist in the default persistence context,
+failing subsequent updates:
+
+.. code-block:: ruby
+
+  band = Band.new(name: "Scuba")
+  band.with(collection: "artists") do |band_object|
+    band_object.save!
+  end
+  
+  # This will not save - updates the collection "bands" which does not have
+  # the Scuba band
+  band.update_attribute(likes: 1000)
+  
+  # This will update the document.
+  band.with(collection: "artists") do |band_object|
+    band_object.update_attribute(likes: 1000)
+  end
+
+As of Mongoid 6.0, the ``with`` method must always be called with a block,
+and the temporary persistence context exists only for the duration of the block.
+This is because a new client is created under the covers with the options
+passed to ``with``. To ensure that this client is closed and its associated
+resources are freed, the scope when this client could be used must be
+well-defined.
+
+Global Override
+```````````````
 
 If you want to switch the persistence context for all operations at runtime, but don't want
 to be using with all over your code, Mongoid provides the ability to do this as the client
@@ -625,10 +676,10 @@ secondary reads can be performed as follows:
   end
 
 Client and Collection Access
-****************************
+----------------------------
 
 If you want to drop down to the driver level to perform operations, you can grab
-the Mongo client or collection from the model or document instance.
+the Mongo client or collection from the model or document instance:
 
 .. code-block:: ruby
 
@@ -637,14 +688,14 @@ the Mongo client or collection from the model or document instance.
   Band.collection
   band.collection
 
-From here you also have the same runtime persistence options using the client's ``#with``.
+From here you also have the same runtime persistence options using the client's ``#with``:
 
 .. code-block:: ruby
 
   client = Band.mongo_client.with(write: { w: 0 }, database: "musik")
   client[:artists].find(...)
 
-You can also override the :read or :write options on the collection using the collections ``#with``.
+You can also override the :read or :write options on the collection using the collections ``#with``:
 
 .. code-block:: ruby
 
@@ -652,7 +703,7 @@ You can also override the :read or :write options on the collection using the co
   collection_w_0[:artists].find(...)
 
 Capped Collections
-******************
+------------------
 
 Mongoid does not provide a mechanism for creating capped collections on the fly - you
 will need to create these yourself one time up front either with the driver or via the
@@ -671,7 +722,7 @@ To create a capped collection from the Mongo console:
   db.createCollection("name", { capped: true, size: 1024 });
 
 Set a Default Collation on a Collection
-***************************************
+---------------------------------------
 
 Mongoid does not provide a mechanism for creating a collection with a default collation.
 Like capped collections, you will need to create the collection yourself one time, up-front,

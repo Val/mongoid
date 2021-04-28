@@ -5,13 +5,13 @@ require "spec_helper"
 
 describe Mongoid::Clients::Sessions do
   before(:all) do
-    unless Mongo::VERSION >= '2.6'
+    if Gem::Version.new(Mongo::VERSION) < Gem::Version.new('2.6')
       skip 'Driver does not support transactions'
     end
   end
 
   before(:all) do
-    if Mongo::VERSION >= '2.6'
+    if Gem::Version.new(Mongo::VERSION) >= Gem::Version.new('2.6')
       CONFIG[:clients][:other] = CONFIG[:clients][:default].dup
       CONFIG[:clients][:other][:database] = 'other'
       Mongoid::Clients.clients.values.each(&:close)
@@ -21,7 +21,7 @@ describe Mongoid::Clients::Sessions do
   end
 
   after(:all) do
-    if Mongo::VERSION >= '2.6'
+    if Gem::Version.new(Mongo::VERSION) >= Gem::Version.new('2.6')
       Mongoid::Clients.with_name(:other).close
       Mongoid::Clients.clients.delete(:other)
     end
@@ -55,7 +55,8 @@ describe Mongoid::Clients::Sessions do
 
   context 'when a transaction is used on a model class' do
 
-    context 'when transactions are supported', if: testing_transactions? do
+    context 'when transactions are supported' do
+      require_transaction_support
 
       around do |example|
         Mongoid::Clients.with_name(:other).database.collections.each(&:drop)
@@ -191,7 +192,10 @@ describe Mongoid::Clients::Sessions do
       end
     end
 
-    context 'when sessions are supported but transactions are not', if: sessions_supported? && !testing_transactions? do
+    context 'when sessions are supported but transactions are not' do
+      min_server_version '3.6'
+      # Could also test 4.0 in sharded cluster
+      max_server_version '3.6'
 
       let!(:error) do
         e = nil
@@ -222,7 +226,8 @@ describe Mongoid::Clients::Sessions do
       end
     end
 
-    context 'when transactions are supported', if: testing_transactions? do
+    context 'when transactions are supported' do
+      require_transaction_support
 
       around do |example|
         Mongoid::Clients.with_name(:other).database.collections.each(&:drop)
@@ -345,16 +350,23 @@ describe Mongoid::Clients::Sessions do
       end
     end
 
-    context 'when sessions are supported but transactions are not', if: sessions_supported? && !testing_transactions? do
+    context 'when sessions are supported but transactions are not' do
+      min_server_version '3.6'
+      # Could also test 4.0 in sharded cluster
+      max_server_version '3.6'
 
       around do |example|
         Mongoid::Clients.with_name(:other).database.collections.each(&:drop)
         Mongoid::Clients.with_name(:other).command(create: :people)
-        subscriber.clear_events!
-        person.with(client: :other) do
-          example.run
+
+        begin
+          subscriber.clear_events!
+          person.with(client: :other) do
+            example.run
+          end
+        ensure
+          Mongoid::Clients.with_name(:other).database.collections.each(&:drop)
         end
-        Mongoid::Clients.with_name(:other).database.collections.each(&:drop)
       end
 
       let!(:error) do

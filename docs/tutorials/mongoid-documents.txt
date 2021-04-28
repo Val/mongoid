@@ -1,15 +1,15 @@
 .. _mongoid-documents-6.0.0:
 
-=========
+*********
 Documents
-=========
+*********
 
 .. default-domain:: mongodb
 
 .. contents:: On this page
    :local:
    :backlinks: none
-   :depth: 1
+   :depth: 2
    :class: singlecol
 
 Documents are the core objects in Mongoid and any object that is to be persisted to the
@@ -17,8 +17,9 @@ database must include ``Mongoid::Document``. The representation of a Document in
 is a BSON object that is very similar to a Ruby hash or JSON object. Documents can be stored
 in their own collections in the database, or can be embedded in other Documents n levels deep.
 
+
 Storage
--------
+=======
 
 Mongoid by default stores documents in a collection that is the pluralized form of the class name.
 For the following ``Person`` class, the collection the document would get stored in would be named ``people``.
@@ -52,7 +53,7 @@ in from the defaults.
 
    class Person
      include Mongoid::Document
-     store_in collection: "citizens", database: "other", client: "secondary"
+     store_in collection: "citizens", database: "other", client: "analytics"
    end
 
 The ``store_in`` macro can also take lambdas - a common case for this is multi-tenant applications.
@@ -85,8 +86,11 @@ and have a structure like so:
      ]
    }
 
+
+.. _fields:
+
 Fields
-------
+======
 
 Even though MongoDB is a schemaless database and allows data to be stored
 as strings, Mongoid permits the application to declare the type of data
@@ -144,6 +148,7 @@ Below is a list of valid types for fields.
 - ``Regexp``
 - ``Set``
 - ``String``
+- ``StringifiedSymbol``
 - ``Symbol``
 - ``Time``
 - ``TimeWithZone``
@@ -173,9 +178,61 @@ Types that are not supported as dynamic attributes since they cannot be cast are
 - ``DateTime``
 - ``Range``
 
+.. _stringified-symbol:
+
+The StringifiedSymbol Type
+--------------------------
+
+The ``StringifiedSymbol`` field type is the recommended field type for storing
+values that should be exposed as symbols to Ruby applications. When using the ``Symbol`` field type,
+Mongoid defaults to storing values as BSON symbols. For more information on the
+BSON symbol type, see :ref:`here <bson-symbol>`.
+However, the BSON symbol type is deprecated and is difficult to work with in programming languages
+without native symbol types, so the ``StringifiedSymbol`` type allows the use of symbols
+while ensuring interoperability with other drivers. The ``StringifiedSymbol`` type stores all data
+on the database as strings, while exposing values to the application as symbols.
+
+An example usage is shown below:
+
+.. code-block:: ruby
+
+  class Post
+    include Mongoid::Document
+
+    field :status, type: StringifiedSymbol
+  end
+
+  post = Post.new(status: :hello)
+  # status is stored as "hello" on the database, but returned as a Symbol
+  post.status
+  # => :hello
+
+  # String values can be assigned also:
+  post = Post.new(status: "hello")
+  # status is stored as "hello" on the database, but returned as a Symbol
+  post.status
+  # => :hello
+
+All non-string values will be stringified upon being sent to the database (via ``to_s``), and
+all values will be converted to symbols when returned to the application. Values that cannot be
+converted directly to symbols, such as integers and arrays, will first be converted to strings and
+then symbols before being returned to the application.
+
+For example, setting an integer as ``status``:
+
+.. code-block:: ruby
+
+  post = Post.new(status: 42)
+  post.status
+  # => :"42"
+
+If the ``StringifiedSymbol`` type is applied to a field that contains BSON symbols, the values
+will be stored as strings instead of BSON symbols on the next save. This permits transparent lazy
+migration from fields that currently store either strings or BSON symbols in the database to the
+``StringifiedSymbol`` field type.
 
 Updating Container Fields
-*************************
+-------------------------
 
 Be aware that, until
 `MONGOID-2951 <https://jira.mongodb.org/browse/MONGOID-2951>`_
@@ -188,10 +245,10 @@ For example, adding to a set like this does not work:
 
   class Band
     include Mongoid::Document
-    
+
     field :tours, type: Set
   end
-  
+
   band = Band.new
   band.tours
   # => #<Set: {}>
@@ -208,76 +265,192 @@ back to the model as follows:
 
   class Band
     include Mongoid::Document
-    
+
     field :tours, type: Set
   end
-  
+
   band = Band.new
-  
+
   tours = band.tours
   # => #<Set: {}>
 
   tours << 'London'
   # => #<Set: {"London"}>
-  
+
   band.tours = tours
   # => #<Set: {"London"}>
-  
+
   band.tours
   # => #<Set: {"London"}>
 
 
 Accessing Field Values
-**********************
+----------------------
 
-When a field is defined, Mongoid provides several different ways of accessing the field.
+Mongoid provides several ways of accessing field values.
+
+.. note::
+
+  All of the access methods described below raise
+  ``ActiveModel::MissingAttributeError`` when the field being accessed is
+  :ref:`projected out <projection>`, either by virtue of not being included in
+  :ref:`only <only>` or by virtue of being included in
+  :ref:`without <without>`. This applies to both reads and writes.
+
+
+Getters & Setters
+`````````````````
+
+The recommended way is to use the getter and setter methods generated for
+each declared field:
 
 .. code-block:: ruby
 
-   # Get the value of the first_name field
-   person.first_name
-   person[:first_name]
-   person.read_attribute(:first_name)
+  class Person
+    include Mongoid::Document
+
+    field :first_name
+  end
+  
+  person = Person.new
+  
+  person.first_name = "Artem"
+  person.first_name
+  # => "Artem"
+
+To use this mechanism, each field must be explicitly declared, or the
+model class must enable :ref:`dynamic fields <dynamic-fields>`.
 
 
-   # Set the value for the first_name field
-   person.first_name = "Jean"
-   person[:first_name] = "Jean"
-   person.write_attribute(:first_name, "Jean")
+Custom Getters & Setters
+````````````````````````
 
-You can define getters/setters that will be called when using the dot notation.
+It is possible to explicitly define the getter and setter methods to provide
+custom behavior when reading or writing fields, for example value
+transformations or storing values under different field names. In this case
+``read_attribute`` and ``write_attribute`` methods can be used to read and
+write the values directly into the attributes hash:
 
 .. code-block:: ruby
 
-   class Person
-     include Mongoid::Document
+  class Person
+    include Mongoid::Document
 
-     field :first_name
+    def first_name
+      read_attribute(:fn)
+    end
+    
+    def first_name=(value)
+      write_attribute(:fn, value)
+    end
+  end
+  
+  person = Person.new
+  
+  person.first_name = "Artem"
+  person.first_name
+  # => "Artem"
+  
+  person.attributes
+  # => {"_id"=>BSON::ObjectId('606477dc2c97a628cf47075b'), "fn"=>"Artem"}
 
-     # custom getter
-     def first_name
-       "My name is Johnny"
-     end
 
-     # custom setter
-     def first_name=(value)
-       p 'Setting.. '
-       self.first_name = value
-       p '.. done!'
-     end
-   end
+.. _read-write-attribute:
 
-   # Like this:
-   person.first_name = 'John'
-   # Setting..
-   # .. done!
+``read_attribute`` & ``write_attribute``
+````````````````````````````````````````
 
-   person.first_name                  # My name is Johnny
-   person[:first_name]                # John
-   person.read_attribute(:first_name) # John
+The ``read_attribute`` and ``write_attribute`` methods can be used explicitly
+as well. Note that if a field specifies its :ref:`storage field name
+<storage-field-names>`, both ``read_attribute`` and ``write_attribute``
+accept either the declared field name or the storage field name for operations:
 
-In cases where you want to set multiple field values at once, there are a few different ways
-of handling this as well.
+.. code-block:: ruby
+
+  class Person
+    include Mongoid::Document
+
+    field :first_name, as: :fn
+    field :last_name, as: :ln
+  end
+  
+  person = Person.new(first_name: "Artem")
+  # => #<Person _id: 60647a522c97a6292c195b4b, first_name(fn): "Artem", last_name(ln): nil>
+
+  person.read_attribute(:first_name)
+  # => "Artem"
+
+  person.read_attribute(:fn)
+  # => "Artem"
+  
+  person.write_attribute(:last_name, "Pushkin")
+  person
+  # => #<Person _id: 60647a522c97a6292c195b4b, first_name(fn): "Artem", last_name(ln): "Pushkin">
+  
+  person.write_attribute(:ln, "Medvedev")
+  person
+  # => #<Person _id: 60647a522c97a6292c195b4b, first_name(fn): "Artem", last_name(ln): "Medvedev">
+
+``read_attribute`` and ``write_attribute`` do not require that a field with
+the used name is defined, but writing field values with ``write_attribute``
+does not cause the respective field to be defined either:
+
+.. code-block:: ruby
+
+  person.write_attribute(:undefined, "Hello")
+  person
+  # => #<Person _id: 60647b212c97a6292c195b4c, first_name(fn): "Artem", last_name(ln): "Medvedev">
+  person.attributes
+  # => {"_id"=>BSON::ObjectId('60647b212c97a6292c195b4c'), "first_name"=>"Artem", "last_name"=>"Medvedev", "undefined"=>"Hello"}
+  
+  person.read_attribute(:undefined)
+  # => "Hello"
+  person.undefined
+  # raises NoMethodError
+
+When ``read_attribute`` is used to access a missing field, it returns ``nil``.
+
+
+Hash Access
+```````````
+
+Mongoid model instances define the ``[]`` and ``[]=`` methods to provide
+``Hash`` style acccess to the attributes. ``[]`` is an alias for
+``read_attribute`` and ``[]=`` is an alias for ``write_attribute``; see
+the section on :ref:`read_attribute and write_attribute <read-write-attribute>`
+for the detailed description of their behavior.
+
+.. code-block:: ruby
+
+  class Person
+    include Mongoid::Document
+
+    field :first_name, as: :fn
+    field :last_name, as: :ln
+  end
+
+  person = Person.new(first_name: "Artem")
+  
+  person["fn"]
+  # => "Artem"
+  
+  person[:first_name]
+  # => "Artem"
+  
+  person[:ln] = "Medvedev"
+  person
+  # => #<Person _id: 606483742c97a629bdde5cfc, first_name(fn): "Artem", last_name(ln): "Medvedev">
+  
+  person["last_name"] = "Pushkin"
+  person
+  # => #<Person _id: 606483742c97a629bdde5cfc, first_name(fn): "Artem", last_name(ln): "Pushkin">
+
+
+Bulk Attribute Writes
+`````````````````````
+
+In cases where you want to set multiple field values at once, there are a few
+different ways of accomplishing this as well.
 
 .. code-block:: ruby
 
@@ -289,11 +462,12 @@ of handling this as well.
    person.attributes = { first_name: "Jean-Baptiste", middle_name: "Emmanuel" }
    person.write_attributes(
      first_name: "Jean-Baptiste",
-     middle_name: "Emmanuel"
+     middle_name: "Emmanuel",
    )
 
+
 Hash Fields
-***********
+-----------
 
 When using a field of type Hash, be wary of adhering to the
 `legal key names for mongoDB <http://docs.mongodb.org/manual/reference/limits/#naming-restrictions>`_,
@@ -321,8 +495,33 @@ or else the values will not store properly.
      end
    end
 
+
+Time Fields
+-----------
+
+``Time`` fields store values as ``Time`` instances in the :ref:`configured
+time zone <time-zones>`.
+
+``Date`` and ``DateTime`` instances are converted to ``Time`` instances upon
+assignment to a ``Time`` field:
+
+.. code-block:: ruby
+
+  class Voter
+    include Mongoid::Document
+    
+    field :registered_at, type: Time
+  end
+  
+  Voter.new(registered_at: Date.today)
+  # => #<Voter _id: 5fdd80392c97a618f07ba344, registered_at: 2020-12-18 05:00:00 UTC>
+
+In the above example, the value was interpreted as the beginning of today in
+local time, because the application was not configured to use UTC times.
+
+
 Date Fields
-***********
+-----------
 
 Mongoid allows assignment of values of several types to ``Date`` fields:
 
@@ -330,7 +529,7 @@ Mongoid allows assignment of values of several types to ``Date`` fields:
 - ``Time``, ``DateTime``, ``ActiveSupport::TimeWithZone`` - the date component
   of the value is taken in the value's time zone.
 - ``String`` - the date specified in the string is used.
-- ``Integer``, ''Float`` - the value is taken to be a UTC timestamp which is
+- ``Integer``, ``Float`` - the value is taken to be a UTC timestamp which is
   converted to the :ref:`configured time zone <time-zones>` (note that
   ``Mongoid.use_utc`` has no effect on this conversion), then the date is
   taken from the resulting time.
@@ -345,7 +544,7 @@ objects to ``Date`` objects before assigning the values to fields of type
 ``Date``.
 
 DateTime Fields
-***************
+---------------
 
 MongoDB stores all times as UTC timestamps. When assigning a value to a
 ``DateTime`` field, or when querying a ``DateTime`` field, Mongoid
@@ -363,10 +562,10 @@ returned is defined by the :ref:`configured time zone settings <time-zones>`.
      include Mongoid::Document
      field :opened_at, type: DateTime
    end
-   
+
    Mongoid.use_activesupport_time_zone = true
    Time.zone = 'Berlin'
-   
+
    ticket = Ticket.create!(opened_at: '2018-02-18 07:00:08 -0500')
 
     ticket.opened_at
@@ -377,7 +576,7 @@ returned is defined by the :ref:`configured time zone settings <time-zones>`.
     Time.zone = 'America/New_York'
     ticket.opened_at
     # => Sun, 18 Feb 2018 07:00:08 -0500
-    
+
     Mongoid.use_utc = true
     ticket.opened_at
     # => Sun, 18 Feb 2018 12:00:08 +0000
@@ -410,64 +609,217 @@ If a time zone is specfied, it is respected:
     ticket.opened_at
     # => Sun, 04 Mar 2018 09:00:00 +0000
 
+Regular Expression Fields
+-------------------------
+
+MongoDB supports storing regular expressions in documents, and querying using
+regular expressions. Of note for Ruby applications, MongoDB uses
+`Perl-compatible regular expressions (PCRE) <http://pcre.org/>`_
+and Ruby uses `Onigmo <https://github.com/k-takata/Onigmo>`_, which is a
+fork of `Oniguruma regular expression engine <https://github.com/kkos/oniguruma>`_.
+The two regular expression implementations generally provide equivalent
+functionality but have several important syntax differences.
+
+When a field is declared to be of type Regexp, Mongoid converts Ruby regular
+expressions to BSON regular expressions and stores the result in MongoDB.
+Retrieving the field from the database produces a ``BSON::Regexp::Raw``
+instance:
+
+.. code-block:: ruby
+
+  class Token
+    include Mongoid::Document
+
+    field :pattern, type: Regexp
+  end
+
+  token = Token.create!(pattern: /hello.world/m)
+  token.pattern
+  # => /hello.world/m
+
+  token.reload
+  token.pattern
+  # => #<BSON::Regexp::Raw:0x0000555f505e4a20 @pattern="hello.world", @options="ms">
+
+Use ``#compile`` method on ``BSON::Regexp::Raw`` to get back the Ruby regular
+expression:
+
+.. code-block:: ruby
+
+  token.pattern.compile
+  # => /hello.world/m
+
+Note that, if the regular expression was not originally a Ruby one, calling
+``#compile`` on it may produce a different regular expression. For example,
+the following is a PCRE matching a string that ends in "hello":
+
+.. code-block:: ruby
+
+  BSON::Regexp::Raw.new('hello$', 's')
+  # => #<BSON::Regexp::Raw:0x0000555f51441640 @pattern="hello$", @options="s">
+
+Compiling this regular expression produces a Ruby regular expression that
+matches strings containing "hello" before a newline, besides strings ending in
+"hello":
+
+.. code-block:: ruby
+
+  BSON::Regexp::Raw.new('hello$', 's').compile =~ "hello\nworld"
+  # => 0
+
+This is because the meaning of ``$`` is different between PCRE and Ruby
+regular expressions.
+
 Defaults
-********
+--------
 
-You can tell a field in Mongoid to always have a default value if nothing has been provided.
-Defaults are either static values or lambdas/procs.
-
-.. code-block:: ruby
-
-   class Person
-     include Mongoid::Document
-     field :blood_alcohol_level, type: Float, default: 0.40
-     field :last_drink, type: Time, default: ->{ 10.minutes.ago }
-   end
-
-Be wary that default values that are not defined as lambdas or procs are evaluated
-at class load time, so the following 2 definitions are not equivalent.
-(One would probably prefer the second, which is evaluated at document creation time.)
+A field can be configured to have a fixed default value:
 
 .. code-block:: ruby
 
-   field :dob, type: Time, default: Time.now
-   field :dob, type: Time, default: ->{ Time.now }
+  class Order
+    include Mongoid::Document
 
-If you want to set a default with a dependency on the document's state, self inside a lambda
-or proc evaluates to the document instance.
+    field :state, type: String, default: 'created'
+  end
 
-.. code-block:: ruby
-
-   field :intoxicated_at, type: Time, default: ->{ new_record? ? 2.hours.ago : Time.now }
-
-When defining a default value as a proc, Mongoid will apply the default after all other
-attributes are set. If you want this to happen before the other attributes, set ``pre_processed: true``.
-
-Aliasing Fields
-***************
-
-One of the drawbacks of having a schemaless database is that MongoDB must store all field
-information along with every document, meaning that it takes up a lot of storage space in RAM
-and on disk. A common pattern to limit this is to alias fields to a small number of characters,
-while keeping the domain in the application expressive. Mongoid allows you to do this and
-reference the fields in the domain via their long names in getters, setters, and criteria while
-performing the conversion for you.
+The default value can also be specified as a ``Proc``:
 
 .. code-block:: ruby
 
-   class Band
-     include Mongoid::Document
-     field :n, as: :name, type: String
-   end
+  class Order
+    include Mongoid::Document
 
-   band = Band.new(name: "Placebo")
-   band.attributes # { "n" => "Placebo" }
+    field :fulfill_by, type: Time, default: ->{ Time.now + 3.days }
+  end
 
-   criteria = Band.where(name: "Placebo")
-   criteria.selector # { "n" => "Placebo" }
+.. note::
+
+  Default values that are not ``Proc`` instances are evaluated at class load
+  time, meaning the following two definitions are not equivalent:
+
+  .. code-block:: ruby
+
+    field :submitted_at, type: Time, default: Time.now
+    field :submitted_at, type: Time, default: ->{ Time.now }
+
+  The second definition is most likely the desired one, which causes the
+  time of submission to be set to the current time at the moment of
+  document instantiation.
+
+To set a default which depends on the document's state, use ``self``
+inside the ``Proc`` instance which would evaluate to the document instance
+being operated on:
+
+.. code-block:: ruby
+
+  field :fulfill_by, type: Time, default: ->{
+    # Order should be fulfilled in 2 business hours.
+    if (7..8).include?(self.submitted_at.hour)
+      self.submitted_at + 4.hours
+    elsif (9..3).include?(self.submitted_at.hour)
+      self.submitted_at + 2.hours
+    else
+      (self.submitted_at + 1.day).change(hour: 11)
+    end
+  }
+
+When defining a default value as a ``Proc``, Mongoid will apply the default
+after all other attributes are set. To have the default be applied before
+the other attributes are set, use the ``pre_processed: true`` field option:
+
+.. code-block:: ruby
+
+  field :fulfill_by, type: Time, default: ->{ Time.now + 3.days },
+    pre_processed: true
+
+
+.. _storage-field-names:
+
+Specifying Storage Field Names
+------------------------------
+
+One of the drawbacks of having a schemaless database is that MongoDB must
+store all field information along with every document, meaning that it
+takes up a lot of storage space in RAM and on disk. A common pattern to limit
+this is to alias fields to a small number of characters, while keeping the
+domain in the application expressive. Mongoid allows you to do this and
+reference the fields in the domain via their long names in getters, setters,
+and criteria while performing the conversion for you.
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    field :n, as: :name, type: String
+  end
+
+  band = Band.new(name: "Placebo")
+  band.attributes # { "n" => "Placebo" }
+
+  criteria = Band.where(name: "Placebo")
+  criteria.selector # { "n" => "Placebo" }
+
+
+.. _field-aliases:
+
+Field Aliases
+-------------
+
+It is possible to define field aliases. The value will be stored in the
+destination field but can be accessed from either the destination field or
+from the aliased field:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
+    field :name, type: String
+    alias_attribute :n, :name
+  end
+  
+  band = Band.new(n: 'Astral Projection')
+  # => #<Band _id: 5fc1c1ee2c97a64accbeb5e1, name: "Astral Projection">
+  
+  band.attributes
+  # => {"_id"=>BSON::ObjectId('5fc1c1ee2c97a64accbeb5e1'), "name"=>"Astral Projection"}
+  
+  band.n
+  # => "Astral Projection"
+
+Aliases can be removed from model classes using the ``unalias_attribute``
+method.
+
+.. code-block:: ruby
+
+  class Band
+    unalias_attribute :n
+  end
+
+.. _unalias-id:
+
+Unaliasing ``id``
+`````````````````
+
+``unalias_attribute`` can be used to remove the predefined ``id`` alias.
+This is useful for storing different values in ``id`` and ``_id`` fields:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
+    unalias_attribute :id
+    field :id, type: String
+  end
+  
+  Band.new(id: '42')
+  # => #<Band _id: 5fc1c3f42c97a6590684046c, id: "42">
+
 
 Custom Fields
-*************
+-------------
 
 You can define custom types in Mongoid and determine how they are serialized and deserialized.
 You simply need to provide three methods on it for Mongoid to call to convert your object to
@@ -557,106 +909,286 @@ it is not as well, ``evolve`` is the method that takes care of this. We check if
 in object is a ``Point`` first, in case we also want to be able to pass in ordinary arrays instead.
 
 Reserved Names
-**************
-
-If you define a field on your document that conflicts with a reserved method name in Mongoid,
-the configuration will raise an error. For a list of these you may look at
-``Mongoid.destructive_fields``.
-
-Custom Ids
-**********
-
-For cases when you do not want to have ``BSON::ObjectId`` ids, you can override Mongoid's
-``_id`` field and set them to whatever you like.
-
-.. code-block:: ruby
-
-   class Band
-     include Mongoid::Document
-     field :name, type: String
-     field :_id, type: String, default: ->{ name }
-   end
-
-A Note about the BSON Symbol type
-*********************************
-
-Because the BSON specification deprecated the BSON symbol type, the `bson` gem will serialize Ruby
-symbols into BSON strings when used on its own. However, in order to maintain backwards
-compatibility with older datasets, the `mongo` gem overrides this behavior to serialize Ruby symbols as
-BSON symbols. This is necessary to be able to specify queries for documents which contain BSON
-symbols as fields.
-
-Although Mongoid allows applications to define fields with the Symbol type, this could present
-problems when using other MongoDB tools that have removed support for the type. Because of this,
-new applications should not specify model fields with the Symbol type but instead use the String
-type. Existing applications with Symbol model fields may convert those fields to Strings using one
-of the following methods:
-
-- Eager migration: Eager migration: write a script or rake task that queries each document and
-  updates any symbols it finds to strings. This will take a long time for larger data sets, and
-  unless the application can handle two different schemas existing in the data at once, it will
-  need to be taken offline while the script runs.
-
-- Lazy migration: rather than updating all of the documents at once, each document received from a
-  query  should be reinserted if it contains a symbol; since the BSON received will have already
-  turned the symbols into strings, this will update the document as necessary. This can be done
-  by simply calling the ``save`` method. Note that this method will only convert documents that
-  are accessed by the application, eventually eager migration may be needed to convert the
-  remaining documents that haven't been accessed.
-
-Dynamic Fields
 --------------
 
-By default, Mongoid doesn't support dynamic fields. You can tell Mongoid that you want
-to add dynamic fields by including ``Mongoid::Attributes::Dynamic`` in a model.
-``Mongoid::Attributes::Dynamic`` will allow attributes to get set and persisted on the
-document even if a field was not defined for them. There is a slight 'gotcha' however when
-dealing with dynamic attributes in that Mongoid is not completely lenient about the use of
-``method_missing`` and breaking the public interface of the Document class.
+Attempting to define a field on a document that conflicts with a reserved
+method name in Mongoid will raise an error. The list of reserved names can
+be obtained by invoking the ``Mongoid.destructive_fields`` method.
+
+Field Redefinition
+------------------
+
+By default Mongoid allows redefining fields on a model. To raise an error
+when a field is redefined, set the ``duplicate_fields_exception``
+:ref:`configuration option <configuration-options>` to ``true``.
+
+With the option set to true, the following example will raise an error:
 
 .. code-block:: ruby
 
-   class Person
-     include Mongoid::Document
-     include Mongoid::Attributes::Dynamic
-   end
+  class Person
+    include Mongoid::Document
 
-When dealing with dynamic attributes, the following rules apply:
+    field :name
 
-If the attribute exists in the document, Mongoid will provide you with your standard
-getter and setter methods. For example, consider a person who has an attribute of
-"gender" set on the document:
+    field :name, type: String
+  end
 
-.. code-block:: ruby
-
-   # Set the person's gender to male.
-   person[:gender] = "Male"
-   person.gender = "Male"
-
-   # Get the person's gender.
-   person.gender
-
-If the attribute does not already exist on the document, Mongoid will not provide you with
-the getters and setters and will enforce normal ``method_missing`` behavior. In this case you
-must use the other provided accessor methods:
-(``[]`` and ``[]=``) or (``read_attribute`` and ``write_attribute``).
+To define the field anyway, use the ``overwrite: true`` option:
 
 .. code-block:: ruby
 
-   # Raise a NoMethodError if value isn't set.
-   person.gender
-   person.gender = "Male"
+  class Person
+    include Mongoid::Document
 
-   # Retrieve a dynamic field safely.
-   person[:gender]
-   person.read_attribute(:gender)
+    field :name
 
-   # Write a dynamic field safely.
-   person[:gender] = "Male"
-   person.write_attribute(:gender, "Male")
+    field :name, type: String, overwrite: true
+  end
+
+
+.. _custom-id:
+
+Custom Ids
+----------
+
+By default, Mongoid defines the ``_id`` field on documents to contain a
+``BSON::ObjcetId`` value which is automatically generated by Mongoid.
+
+It is possible to replace the ``_id`` field definition to change the type
+of the ``_id`` values or have different default values:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    field :name, type: String
+    field :_id, type: String, default: ->{ name }
+  end
+
+It is possible to omit the default entirely:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    field :_id, type: String
+  end
+
+If the default on ``_id`` is omitted, and no ``_id`` value is provided by
+your application, Mongoid will persist the document without the ``_id``
+value. In this case, if the document is a top-level document, an ``_id``
+value will be assigned by the server; if the document is an embedded document,
+no ``_id`` value will be assigned. Mongoid will not automatically retrieve
+this value, if assigned, when the document is persisted - you
+must obtain the persisted value (and the complete persisted document) using
+other means:
+
+.. code-block:: ruby
+
+  band = Band.create!
+  => #<Band _id: , >
+  band.id
+  => nil
+  band.reload
+  # raises Mongoid::Errors::DocumentNotFound
+  Band.last
+  => #<Band _id: 5fc681c22c97a6791f324b99, >
+
+Omitting ``_id`` fields is more common in :ref:`embedded documents <omit-id>`.
+
+Mongoid also defines the ``id`` field aliased to ``_id``. The ``id``
+alias can :ref:`be removed <unalias-id>` if desired (such as to integrate
+with systems that use the ``id`` field to store value different from ``_id``.
+
+
+.. _bson-symbol:
+
+BSON Symbol Type
+----------------
+
+New applications should use the :ref:`StringifiedSymbol field type <stringified-symbol>`
+to store Ruby symbols in the database. The ``StringifiedSymbol`` field type
+provides maximum compatibility with other applications and programming languages
+and has the same behavior in all circumstances.
+
+Mongoid also provides the deprecated ``Symbol`` field type for serializing
+Ruby symbols to BSON symbols. Because the BSON specification deprecated the
+BSON symbol type, the `bson` gem will serialize Ruby symbols into BSON strings
+when used on its own. However, in order to maintain backwards compatibility
+with older datasets, the `mongo` gem overrides this behavior to serialize Ruby
+symbols as BSON symbols. This is necessary to be able to specify queries for
+documents which contain BSON symbols as fields.
+
+To override the default behavior and configure the ``mongo`` gem (and thereby
+Mongoid as well) to encode symbol values as strings, include the following code
+snippet in your project:
+
+.. code-block:: ruby
+
+  class Symbol
+    def bson_type
+      BSON::String::BSON_TYPE
+    end
+  end
+
+
+.. _dynamic-fields:
+
+Dynamic Fields
+==============
+
+By default, Mongoid requires all fields that may be set on a document to
+be explicitly defined using ``field`` declarations. Mongoid also supports
+creating fields on the fly from an arbitrary hash or documents stored in
+the database. When a model uses fields not explicitly defined, such fields
+are called *dynamic fields*.
+
+To enable dynamic fields, include ``Mongoid::Attributes::Dynamic`` module
+in the model:
+
+.. code-block:: ruby
+
+  class Person
+    include Mongoid::Document
+    include Mongoid::Attributes::Dynamic
+  end
+
+  bob = Person.new(name: 'Bob', age: 42)
+  bob.name
+  # => "Bob"
+
+It is possible to use ``field`` declarations and dynamic fields in the same
+model class. Attributes for which there is a ``field`` declaration will be
+treated according to the ``field`` declaration, with remaining attributes
+being treated as dynamic fields.
+
+Attribute values in the dynamic fields must initially be set by either
+passing the attribute hash to the constructor, mass assignment via
+``attributes=``, mass assignment via ``[]=``, using ``write_attribute``,
+or they must already be present in the database.
+
+.. code-block:: ruby
+
+  # OK
+  bob = Person.new(name: 'Bob')
+
+  # OK
+  bob = Person.new
+  bob.attributes = {age: 42}
+
+  # OK
+  bob = Person.new
+  bob['age'] = 42
+
+  # Raises NoMethodError: undefined method age=
+  bob = Person.new
+  bob.age = 42
+
+  # OK
+  bob = Person.new
+  # OK - string access
+  bob.write_attribute('age', 42)
+  # OK - symbol access
+  bob.write_attribute(:name, 'Bob')
+
+  # OK, initializes attributes from whatever is in the database
+  bob = Person.find('123')
+
+If an attribute is not present in a particular model instance's attributes
+hash, both the reader and the writer for the corresponding field are not
+defined, and invoking them raises ``NoMethodError``:
+
+.. code-block:: ruby
+
+  bob = Person.new
+  bob.attributes = {age: 42}
+
+  bob.age
+  # => 42
+
+  # raises NoMethodError
+  bob.name
+
+  # raises NoMethodError
+  bob.name = 'Bob'
+
+  # OK
+  bob['name'] = 'Bob'
+
+  bob.name
+  # => "Bob"
+
+Attributes can always be read using mass attribute access or ``read_attribute``
+(this appies to models not using dynamic fields as well):
+
+.. code-block:: ruby
+
+  bob = Person.new(age: 42)
+
+  # OK - string access
+  bob['name']
+  # => nil
+
+  # OK - symbol access
+  bob[:name]
+  # => nil
+
+  # OK - string access
+  bob['age']
+  # => 42
+
+  # OK - symbol access
+  bob[:age]
+  # => 42
+
+  # OK
+  bob.attributes['name']
+  # => nil
+
+  # OK
+  bob.attributes['age']
+  # => 42
+
+  # Returns nil - keys are always strings
+  bob.attributes[:age]
+  # => nil
+
+  # OK
+  bob.read_attribute('name')
+  # => nil
+
+  # OK
+  bob.read_attribute(:name)
+  # => nil
+
+  # OK - string access
+  bob.read_attribute('age')
+  # => 42
+
+  # OK - symbol access
+  bob.read_attribute(:age)
+  # => 42
+
+
+Special Characters in Field Names
+---------------------------------
+
+Mongoid permits dynamic field names to include spaces and punctuation:
+
+.. code-block:: ruby
+
+  bob = Person.new('hello world' => 'MDB')
+  bob.send('hello world')
+  # => "MDB"
+
+  bob.write_attribute("hello%world", 'MDB')
+  bob[:"hello%world"]
+  # => "MDB"
+
 
 Localized Fields
-----------------
+================
 
 Mongoid supports localized fields via `i18n <https://github.com/ruby-i18n/i18n>`_.
 
@@ -690,39 +1222,53 @@ You can get and set all the translations at once by using the corresponding ``_t
    product.description_translations =
      { "en" => "Marvelous!", "de" => "Wunderbar!" }
 
+
 Fallbacks
-*********
+---------
 
-When using fallbacks, Mongoid will automatically use them when a translation is not available.
+Mongoid integrates with
+`i18n fallbacks <https://github.com/ruby-i18n/i18n/wiki/Fallbacks>`_.
+To use the fallbacks, the respective functionality must be explicitly enabled.
 
-For Rails applications, set the fallbacks configuration setting to true in your environment.
-
-.. code-block:: ruby
-
-   config.i18n.fallbacks = true
-
-For non-Rails applications, you must include the fallbacks module straight to the I18n gem.
+In a Rails application, set the ``config.i18n.fallbacks`` configuration setting
+to ``true`` in your environment and specify the fallback languages:
 
 .. code-block:: ruby
 
-   require "i18n/backend/fallbacks"
-   I18n::Backend::Simple.send(:include, I18n::Backend::Fallbacks)
+  config.i18n.fallbacks = true
+  config.after_initialize do
+    I18n.fallbacks[:de] = [ :en, :es ]
+  end
 
-When the fallbacks are defined, if a translation is not present, Mongoid will fallback
-in order of the defined locales.
+In a non-Rails application, include the fallbacks module into the I18n backend
+you are using and specify the fallback languages:
 
 .. code-block:: ruby
 
-   I18n.default_locale = :en
-   I18n.fallbacks = true
-   ::I18n.fallbacks[:de] = [ :de, :en, :es ]
-   product = Product.new
-   product.description = "Marvelous!"
-   I18n.locale = :de
-   product.description # "Marvelous!"
+  require "i18n/backend/fallbacks"
+  I18n::Backend::Simple.send(:include, I18n::Backend::Fallbacks)
+  I18n.fallbacks[:de] = [ :en, :es ]
+
+When fallbacks are enabled, if a translation is not present in the active
+language, translations will be looked up in the fallback languages:
+
+.. code-block:: ruby
+
+  product = Product.new
+  I18n.locale = :en
+  product.description = "Marvelous!"
+  I18n.locale = :de
+  product.description # "Marvelous!"
+
+.. note::
+
+  In i18n 1.1, the behavior of fallbacks `changed <https://github.com/ruby-i18n/i18n/pull/415>`_
+  to always require an explicit list of fallback locales rather than falling
+  back to the default locale when no fallback locales have been provided.
+
 
 Querying
-********
+--------
 
 When querying for localized fields using Mongoid's criteria API, Mongoid will automatically
 alter the criteria to match the current locale.
@@ -734,7 +1280,7 @@ alter the criteria to match the current locale.
    # The resulting MongoDB query filter: { "description.en" : "Marvelous!" }
 
 Indexing
-********
+--------
 
 If you plan to be querying extensively on localized fields, you should index each of the
 locales that you plan on searching on.
@@ -750,14 +1296,14 @@ locales that you plan on searching on.
    end
 
 Dirty Tracking
---------------
+==============
 
 Mongoid supports tracking of changed or "dirty" fields with an API that mirrors that of
 Active Model. If a defined field has been modified in a model the model will be marked as
 dirty and some additional behavior comes into play.
 
 Viewing Changes
-***************
+---------------
 
 There are various ways to view what has been altered on a model. Changes are recorded
 from the time a document is instantiated, either as a new document or via loading from
@@ -792,7 +1338,7 @@ the database up to the time it is saved. Any persistence operation clears the ch
    person.name_was # "Alan Parsons"
 
 Resetting Changes
-*****************
+-----------------
 
 You can reset changes of a field to its previous value by calling the reset method.
 
@@ -805,8 +1351,8 @@ You can reset changes of a field to its previous value by calling the reset meth
    person.reset_name!
    person.name # "Alan Parsons"
 
-Notes On Persistence
-********************
+Persistence
+-----------
 
 Mongoid uses dirty tracking as the core of its persistence operations. It looks at the
 changes on a document and atomically updates only what has changed, unlike other frameworks
@@ -814,7 +1360,7 @@ that write the entire document on each save. If no changes have been made, Mongo
 not hit the database on a call to ``Model#save``.
 
 Viewing Previous Changes
-************************
+------------------------
 
 After a document has been persisted, you can see what the changes were previously by
 calling ``Model#previous_changes``.
@@ -828,11 +1374,14 @@ calling ``Model#previous_changes``.
    # View the previous changes.
    person.previous_changes # { "name" => [ "Alan Parsons", "Alan Garner" ] }
 
-Readonly Attributes
--------------------
+.. _read-only:
 
-You can tell Mongoid that certain attributes are readonly. This will allow documents to be
-created with these attributes, but changes to them will be filtered out.
+Read-Only Attributes
+====================
+
+You can tell Mongoid that certain attributes are read-only. This will allow
+documents to be created with these attributes, but changes to them will be
+ignored when using mass update methods such as ``update_attributes``:
 
 .. code-block:: ruby
 
@@ -847,16 +1396,17 @@ created with these attributes, but changes to them will be filtered out.
    band = Band.create(name: "Placebo")
    band.update_attributes(name: "Tool") # Filters out the name change.
 
-If you explicitly try to update or remove the attribute by itself, then a ``ReadonlyAttribute``
-error will be raised.
+If you explicitly try to update or remove a read-only attribute by itself,
+a ``ReadonlyAttribute`` exception will be raised:
 
 .. code-block:: ruby
 
    band.update_attribute(:name, "Tool") # Raises the error.
    band.remove_attribute(:name) # Raises the error.
 
+
 Inheritance
------------
+===========
 
 Mongoid supports inheritance in both top level and embedded documents. When
 a child document inherits from a parent document, the parent document's
@@ -872,7 +1422,7 @@ fields, associations, validations and scopes are copied to the child document.
 
    class Browser < Canvas
      field :version, type: Integer
-     scope :recent, where(:version.gt => 3)
+     scope :recent, ->{ where(:version.gt => 3) }
    end
 
    class Firefox < Browser
@@ -899,8 +1449,167 @@ collection. An additional attribute ``_type`` is stored in order to make sure wh
 from the database the correct document is returned. This also holds true for the embedded
 documents ``Circle``, ``Rectangle``, and ``Shape``.
 
+.. note::
+
+    When searching for a ``Circle``, the query will only return documents in the shape collection
+    where the ``_type`` (or whatever the discriminator key was set to) field has the value ``Circle`` (or
+    whatever the discriminator value was set to), all other discriminator values will be considered an object
+    of the Shape class.
+
+    Similarly, when querying by parent classes (``Canvas`` in this example), any documents in the collection
+    that do not have a discriminator value, or whose discriminator value does not map to either the parent
+    or any of its descendants, will be returned as instances of the parent class.
+
+
+.. _discriminator-key:
+
+Changing the Discriminator Key
+------------------------------
+Mongoid supports changing the discriminator key from the default ``_type``. There are a few
+cases where one might want to do this:
+
+1. For optimization: The user might want to use a shorter key like ``_t``.
+
+2. When trying to work with an existing system: It's possible the user is working with an existing system or dataset that has predefined keys.
+
+
+There are two ways to change the discriminator key, on the class level and on the global level.
+To change the discriminator key on the class level the user can set it directly on the parent class using
+the ``discriminator_key=`` method.
+Take the above example:
+
+.. code-block:: ruby
+
+   class Shape
+     include Mongoid::Document
+     field :x, type: Integer
+     field :y, type: Integer
+     embedded_in :canvas
+
+     self.discriminator_key = "shape_type"
+   end
+
+   class Circle < Shape
+     field :radius, type: Float
+   end
+
+   class Rectangle < Shape
+     field :width, type: Float
+     field :height, type: Float
+   end
+
+Here a call to the ``discriminator_key=`` setter was added to the parent class. Now, on
+creation of a Rectangle or Circle, a ``shape_type`` field will be added.
+
+Note that the discriminator key can only be modified in the parent class, and an error
+will be raised if trying to set it on the child class.
+
+If the discriminator key is changed after the child class is created, a new field is
+added with the new discriminator key value, and the old field will remain unchanged.
+For example:
+
+.. code-block:: ruby
+
+   class Shape
+     include Mongoid::Document
+     field :x, type: Integer
+     field :y, type: Integer
+     embedded_in :canvas
+   end
+
+   class Circle < Shape
+     field :radius, type: Float
+   end
+
+   class Rectangle < Shape
+     field :width, type: Float
+     field :height, type: Float
+   end
+
+   Shape.discriminator_key = "shape_type"
+
+In this case, on creation of a Rectangle or Circle, there will be both a ``shape_type``
+and a ``_type`` field that both default to ``Rectangle`` or ``Circle`` respectively.
+
+
+The discriminator key can also be set on the global level. Meaning, all classes will
+use the globally set discriminator key instead of ``_type``. Take the above example:
+
+.. code-block:: ruby
+
+   Mongoid.discriminator_key = "_the_type"
+
+   class Shape
+     include Mongoid::Document
+     field :x, type: Integer
+     field :y, type: Integer
+     embedded_in :canvas
+   end
+
+   class Circle < Shape
+     field :radius, type: Float
+   end
+
+   class Rectangle < Shape
+     field :width, type: Float
+     field :height, type: Float
+   end
+
+After setting the global discriminator key, all classes will use ``_the_type`` as
+the discriminator key and will not contain a ``_type`` field.
+
+Note that when defining the discriminator key on the global level, it must be set before the
+child class is defined for the child class to use that global value.
+On the global level, however, if the user does not set the discriminator key before defining a child
+class, the discriminator field will use the default ``_type`` and not the new global setting in
+that child class.
+
+
+.. _discriminator-value:
+
+Changing the Discriminator Value
+--------------------------------
+Mongoid also supports changing the discriminator value from the default value, which is the class name.
+One can change the discriminator value by using the ``discriminator_value=`` method on that specific class.
+
+Take the above example:
+
+.. code-block:: ruby
+
+   class Shape
+     include Mongoid::Document
+     field :x, type: Integer
+     field :y, type: Integer
+     embedded_in :canvas
+   end
+
+   class Circle < Shape
+     field :radius, type: Float
+
+     self.discriminator_value = "round thing"
+   end
+
+   class Rectangle < Shape
+     field :width, type: Float
+     field :height, type: Float
+   end
+
+Here, a call to the ``discriminator_value=`` setter was added to ``Circle``.
+Now, on creation of a ``Circle``, the document will contain a field with the key ``_type`` (or whatever the ``discriminator_key`` was changed to)
+and the value "round thing."
+
+.. note::
+
+  Because the discriminator value overrides are declared in child classes,
+  the child classes potentially found by a query must be loaded prior to
+  sending that query. In the above example, the ``Circle`` class definition
+  must be loaded when querying on ``Shape`` if the returned documents could
+  potentially be instances of ``Circle`` (since autoloading wouldn't resolve
+  ``"round thing"`` to ``Circle``).
+
+
 Querying Subclasses
-*******************
+-------------------
 
 Querying for subclasses is handled in the normal manner, and although the documents are
 all in the same collection, queries will only return documents of the correct type,
@@ -913,11 +1622,12 @@ similar to Single Table Inheritance in ActiveRecord.
    # Returns only Firefox documents
    Firefox.where(name: "Window 1")
 
-Associations
-************
 
-You can add any type of subclass to a has one or has many association, through either normal
-setting or through the build and create methods on the association:
+Associations
+------------
+
+You can add any type of subclass to a has one or has many association, through
+either normal setting or through the build and create methods on the association:
 
 .. code-block:: ruby
 
@@ -934,7 +1644,7 @@ setting or through the build and create methods on the association:
 
 
 Timestamping
-------------
+============
 
 Mongoid supplies a timestamping module in ``Mongoid::Timestamps`` which
 can be included to get basic behavior for ``created_at`` and

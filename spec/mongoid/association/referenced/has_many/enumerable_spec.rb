@@ -3,7 +3,7 @@
 
 require "spec_helper"
 
-describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
+describe Mongoid::Association::Referenced::HasMany::Enumerable do
 
   describe "#==" do
 
@@ -253,6 +253,111 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
 
         it "retains the correct length when calling to_a" do
           expect(enumerable.to_a.length).to eq(2)
+        end
+      end
+    end
+
+    context "when the documents have been loaded" do
+      let(:criteria) do
+        Post.where(person_id: person.id)
+      end
+
+      let!(:enumerable) do
+        described_class.new(criteria)
+      end
+
+      before do
+        enumerable.load_all!
+      end
+
+      it "is _loaded" do
+        expect(enumerable._loaded?).to be true
+      end
+
+      context "when a block is given" do
+        it "returns true when the predicate is true" do
+          expect(
+            enumerable.any? { |doc| true }
+          ).to be true
+        end
+
+        it "returns false when the predicate is false" do
+          expect(
+            enumerable.any? { |doc| false }
+          ).to be false
+        end
+      end
+
+      context "when an argument is given" do
+        ruby_version_gte '2.5'
+
+        it "returns true when the argument is true" do
+          expect(enumerable.any?(Post)).to be true
+        end
+
+        it "returns false when the argument is false" do
+          expect(enumerable.any?(Sandwich)).to be false
+        end
+      end
+
+      context "when both an argument and a block are given" do
+        ruby_version_gte '2.5'
+
+        it "gives precedence to the pattern" do
+          expect(
+            enumerable.any?(Post) { |doc| false }
+          ).to be true
+        end
+      end
+    end
+
+    context "when the documents are not loaded" do
+
+      let(:criteria) do
+        Post.where(person_id: person.id)
+      end
+
+      let!(:enumerable) do
+        described_class.new(criteria)
+      end
+
+      it "is not _loaded" do
+        expect(enumerable._loaded?).to be false
+      end
+
+      context "when a block is given" do
+        it "returns true when the predicate is true" do
+          expect(
+            enumerable.any? { |doc| true }
+          ).to be true
+        end
+
+        it "returns false when the predicate is false" do
+          expect(
+            enumerable.any? { |doc| false }
+          ).to be false
+        end
+      end
+
+      context "when an argument is given" do
+        ruby_version_gte '2.5'
+
+        it "returns true when the argument is true" do
+          expect(enumerable.any?(Post)).to be true
+        end
+
+        it "returns false when the argument is false" do
+          expect(enumerable.any?(Sandwich)).to be false
+        end
+      end
+
+      context "when both an argument and a block are given" do
+        ruby_version_gte '2.5'
+
+        it "gives precedence to the pattern" do
+          expect(
+            enumerable.any?(Post) { |doc| false }
+          ).to be true
         end
       end
     end
@@ -782,11 +887,7 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
     end
   end
 
-  shared_examples 'first or one' do
-
-    subject do
-      enumerable.public_send(subject_method)
-    end
+  describe "#first" do
 
     let(:person) do
       Person.create
@@ -810,8 +911,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
             Post.create(person_id: person.id)
           end
 
+          let(:first) do
+            enumerable.first
+          end
+
           it "returns the first unloaded doc" do
-            expect(subject).to eq(post)
+            expect(first).to eq(post)
           end
 
           it "does not load the enumerable" do
@@ -820,7 +925,7 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
 
           it "receives query only once" do
             expect(criteria).to receive(:first).once
-            subject
+            first
           end
         end
 
@@ -838,10 +943,14 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
             enumerable << post_two
           end
 
+          let(:first) do
+            enumerable.first
+          end
+
           context "when a perviously persisted unloaded doc exists" do
 
             it "returns the first added doc" do
-              expect(subject).to eq(post)
+              expect(first).to eq(post)
             end
 
             it "does not load the enumerable" do
@@ -861,8 +970,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
           enumerable << post
         end
 
+        let(:first) do
+          enumerable.first
+        end
+
         it "returns the first loaded doc" do
-          expect(subject).to eq(post)
+          expect(first).to eq(post)
         end
 
         it "does not load the enumerable" do
@@ -872,8 +985,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
 
       context "when unloaded and added are empty" do
 
+        let(:first) do
+          enumerable.first
+        end
+
         it "returns nil" do
-          expect(subject).to be_nil
+          expect(first).to be_nil
         end
 
         it "does not load the enumerable" do
@@ -894,8 +1011,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
           described_class.new([ post ])
         end
 
+        let(:first) do
+          enumerable.first
+        end
+
         it "returns the first loaded doc" do
-          expect(subject).to eq(post)
+          expect(first).to eq(post)
         end
       end
 
@@ -913,8 +1034,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
           enumerable << post
         end
 
+        let(:first) do
+          enumerable.first
+        end
+
         it "returns the first added doc" do
-          expect(subject).to eq(post)
+          expect(first).to eq(post)
         end
       end
 
@@ -924,8 +1049,12 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
           described_class.new([])
         end
 
+        let(:first) do
+          enumerable.first
+        end
+
         it "returns nil" do
-          expect(subject).to be_nil
+          expect(first).to be_nil
         end
       end
     end
@@ -953,20 +1082,8 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
       end
 
       it 'does not use the sort on id' do
-        expect(enumerable.send(subject_method, id_sort: :none)).to eq(first_post)
+        expect(enumerable.first(id_sort: :none)).to eq(first_post)
       end
-    end
-  end
-
-  describe "#first" do
-    let(:subject_method) do
-      :first
-    end
-
-    it_behaves_like 'first or one'
-
-    subject do
-      enumerable.public_send(subject_method)
     end
 
     context 'when the id_sort option is not provided' do
@@ -984,54 +1101,15 @@ describe Mongoid::Association::Referenced::HasMany::Targets::Enumerable do
       end
 
       let!(:first_post) do
-        person.posts.create(id: 'one', title: "One")
+        person.posts.create(title: "One")
       end
 
       let!(:second_post) do
-        person.posts.create(id: 'atwo', title: "Two")
+        person.posts.create(title: "Two")
       end
 
       it 'uses the sort on id' do
-        expect(subject).to eq(second_post)
-      end
-    end
-  end
-
-  describe "#one" do
-    let(:subject_method) do
-      :one
-    end
-
-    it_behaves_like 'first or one'
-
-    subject do
-      enumerable.public_send(subject_method)
-    end
-
-    context 'when the id_sort option is not provided' do
-
-      let(:person) do
-        Person.create
-      end
-
-      let(:criteria) do
-        Post.where(person_id: person.id)
-      end
-
-      let(:enumerable) do
-        described_class.new(criteria)
-      end
-
-      let!(:first_post) do
-        person.posts.create(id: 'one', title: "One")
-      end
-
-      let!(:second_post) do
-        person.posts.create(id: 'atwo', title: "Two")
-      end
-
-      it 'does not use the sort on id' do
-        expect(subject).to eq(first_post)
+        expect(enumerable.first).to eq(first_post)
       end
     end
   end

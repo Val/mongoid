@@ -17,8 +17,13 @@ module Mongoid
       # @return [ Hash ] The hash of cached queries.
       #
       # @since 4.0.0
+      # @api private
       def cache_table
-        Thread.current["[mongoid]:query_cache"] ||= {}
+        if defined?(Mongo::QueryCache)
+          raise NotImplementedError, "Mongoid does not expose driver's query cache table"
+        else
+          Thread.current["[mongoid]:query_cache"] ||= {}
+        end
       end
 
       # Clear the query cache.
@@ -30,7 +35,11 @@ module Mongoid
       #
       # @since 4.0.0
       def clear_cache
-        Thread.current["[mongoid]:query_cache"] = nil
+        if defined?(Mongo::QueryCache)
+          Mongo::QueryCache.clear
+        else
+          Thread.current["[mongoid]:query_cache"] = nil
+        end
       end
 
       # Set whether the cache is enabled.
@@ -42,7 +51,11 @@ module Mongoid
       #
       # @since 4.0.0
       def enabled=(value)
-        Thread.current["[mongoid]:query_cache:enabled"] = value
+        if defined?(Mongo::QueryCache)
+          Mongo::QueryCache.enabled = value
+        else
+          Thread.current["[mongoid]:query_cache:enabled"] = value
+        end
       end
 
       # Is the query cache enabled on the current thread?
@@ -54,7 +67,11 @@ module Mongoid
       #
       # @since 4.0.0
       def enabled?
-        !!Thread.current["[mongoid]:query_cache:enabled"]
+        if defined?(Mongo::QueryCache)
+          Mongo::QueryCache.enabled?
+        else
+          !!Thread.current["[mongoid]:query_cache:enabled"]
+        end
       end
 
       # Execute the block while using the query cache.
@@ -65,12 +82,18 @@ module Mongoid
       # @return [ Object ] The result of the block.
       #
       # @since 4.0.0
-      def cache
-        enabled = QueryCache.enabled?
-        QueryCache.enabled = true
-        yield
-      ensure
-        QueryCache.enabled = enabled
+      def cache(&block)
+        if defined?(Mongo::QueryCache)
+          Mongo::QueryCache.cache(&block)
+        else
+          enabled = QueryCache.enabled?
+          QueryCache.enabled = true
+          begin
+            yield
+          ensure
+            QueryCache.enabled = enabled
+          end
+        end
       end
 
       # Execute the block with the query cache disabled.
@@ -79,47 +102,59 @@ module Mongoid
       #   QueryCache.uncached { collection.find }
       #
       # @return [ Object ] The result of the block.
-      def uncached
-        enabled = QueryCache.enabled?
-        QueryCache.enabled = false
-        yield
-      ensure
-        QueryCache.enabled = enabled
+      def uncached(&block)
+        if defined?(Mongo::QueryCache)
+          Mongo::QueryCache.uncached(&block)
+        else
+          enabled = QueryCache.enabled?
+          QueryCache.enabled = false
+          begin
+            yield
+          ensure
+            QueryCache.enabled = enabled
+          end
+        end
       end
     end
 
-    # The middleware to be added to a rack application in order to activate the
-    # query cache.
-    #
-    # @since 4.0.0
-    class Middleware
-
-      # Instantiate the middleware.
-      #
-      # @example Create the new middleware.
-      #   Middleware.new(app)
-      #
-      # @param [ Object ] app The rack applciation stack.
+    if defined?(Mongo::QueryCache::Middleware)
+      Middleware = Mongo::QueryCache::Middleware
+    else
+      # The middleware to be added to a rack application in order to activate the
+      # query cache.
       #
       # @since 4.0.0
-      def initialize(app)
-        @app = app
-      end
+      class Middleware
 
-      # Execute the request, wrapping in a query cache.
-      #
-      # @example Execute the request.
-      #   middleware.call(env)
-      #
-      # @param [ Object ] env The environment.
-      #
-      # @return [ Object ] The result of the call.
-      #
-      # @since 4.0.0
-      def call(env)
-        QueryCache.cache { @app.call(env) }
-      ensure
-        QueryCache.clear_cache
+        # Instantiate the middleware.
+        #
+        # @example Create the new middleware.
+        #   Middleware.new(app)
+        #
+        # @param [ Object ] app The rack application stack.
+        #
+        # @since 4.0.0
+        def initialize(app)
+          @app = app
+        end
+
+        # Execute the request, wrapping in a query cache.
+        #
+        # @example Execute the request.
+        #   middleware.call(env)
+        #
+        # @param [ Object ] env The environment.
+        #
+        # @return [ Object ] The result of the call.
+        #
+        # @since 4.0.0
+        def call(env)
+          QueryCache.cache do
+            @app.call(env)
+          end
+        ensure
+          QueryCache.clear_cache
+        end
       end
     end
 
@@ -127,6 +162,7 @@ module Mongoid
     # the database if the same query has already been executed.
     #
     # @since 5.0.0
+    # @deprecated This class is only used with driver versions 2.13 and lower.
     class CachedCursor < Mongo::Cursor
 
       # We iterate over the cached documents if they exist already in the
@@ -163,12 +199,10 @@ module Mongoid
       private
 
       def process(result)
-        @remaining -= result.returned_count if limited?
-        @cursor_id = result.cursor_id
-        @coll_name ||= result.namespace.sub("#{database.name}.", '') if result.namespace
-        documents = result.documents
+        documents = super
         if @cursor_id.zero? && !@after_first_batch
-          (@cached_documents ||= []).concat(documents)
+          @cached_documents ||= []
+          @cached_documents.concat(documents)
         end
         @after_first_batch = true
         documents
@@ -179,16 +213,15 @@ module Mongoid
     # operations.
     #
     # @since 4.0.0
+    # @deprecated This module is only used with driver versions 2.13 and lower.
     module Base
 
       def alias_query_cache_clear(*method_names)
         method_names.each do |method_name|
-          class_eval <<-CODE, __FILE__, __LINE__ + 1
-              def #{method_name}_with_clear_cache(*args)
-                QueryCache.clear_cache
-                #{method_name}_without_clear_cache(*args)
-              end
-            CODE
+          define_method("#{method_name}_with_clear_cache") do |*args|
+            QueryCache.clear_cache
+            send("#{method_name}_without_clear_cache", *args)
+          end
 
           alias_method "#{method_name}_without_clear_cache", method_name
           alias_method method_name, "#{method_name}_with_clear_cache"
@@ -200,6 +233,7 @@ module Mongoid
     # cached cursor or a regular cursor on iteration.
     #
     # @since 5.0.0
+    # @deprecated This module is only used with driver versions 2.13 and lower.
     module View
       extend ActiveSupport::Concern
 
@@ -225,20 +259,35 @@ module Mongoid
       #
       # @since 5.0.0
       def each
-        if system_collection? || !QueryCache.enabled?
+        if system_collection? || !QueryCache.enabled? || (respond_to?(:write?, true) && write?)
           super
         else
-          unless cursor = cached_cursor
-            read_with_retry do
-              server = server_selector.select_server(cluster)
-              cursor = CachedCursor.new(view, send_initial_query(server), server)
-              QueryCache.cache_table[cache_key] = cursor
+          @cursor = nil
+          unless @cursor = cached_cursor
+            session = client.send(:get_session, @options)
+            read_with_retry(session, server_selector) do |server|
+              result = send_initial_query(server, session)
+              if result.cursor_id == 0 || result.cursor_id.nil?
+                @cursor = CachedCursor.new(view, result, server, session: session)
+                QueryCache.cache_table[cache_key] = @cursor
+              else
+                @cursor = Mongo::Cursor.new(view, result, server, session: session)
+              end
             end
           end
-          cursor.each do |doc|
-            yield doc
-          end if block_given?
-          cursor
+          if block_given?
+            if limit
+              @cursor.to_a[0...limit].each do |doc|
+                yield doc
+              end
+            else
+              @cursor.each do |doc|
+                yield doc
+              end
+            end
+          else
+            @cursor.to_enum
+          end
         end
       end
 
@@ -248,9 +297,6 @@ module Mongoid
         if limit
           key = [ collection.namespace, selector, nil, skip, sort, projection, collation  ]
           cursor = QueryCache.cache_table[key]
-          if cursor
-            cursor.to_a[0...limit.abs]
-          end
         end
         cursor || QueryCache.cache_table[cache_key]
       end
@@ -260,13 +306,14 @@ module Mongoid
       end
 
       def system_collection?
-        collection.namespace =~ /\Asystem./
+        collection.name.start_with?('system.')
       end
     end
 
     # Adds behavior to the query cache for collections.
     #
     # @since 5.0.0
+    # @deprecated This module is only used with driver versions 2.13 and lower.
     module Collection
       extend ActiveSupport::Concern
 
@@ -285,6 +332,8 @@ module Mongoid
   end
 end
 
-Mongo::Collection.__send__(:include, Mongoid::QueryCache::Collection)
-Mongo::Collection::View.__send__(:include, Mongoid::QueryCache::View)
-Mongoid::Document.__send__(:include, Mongoid::QueryCache::Document)
+unless defined?(Mongo::QueryCache)
+  Mongo::Collection.__send__(:include, Mongoid::QueryCache::Collection)
+  Mongo::Collection::View.__send__(:include, Mongoid::QueryCache::View)
+  Mongoid::Document.__send__(:include, Mongoid::QueryCache::Document)
+end

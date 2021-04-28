@@ -151,7 +151,7 @@ module Mongoid
     #
     # @since 2.4.0
     def to_key
-      (persisted? || destroyed?) ? [ id.to_s ] : nil
+      (persisted? || destroyed?) ? [ _id.to_s ] : nil
     end
 
     # Return an array with this +Document+ only in it.
@@ -229,12 +229,13 @@ module Mongoid
       became = klass.new(clone_document)
       became._id = _id
       became.instance_variable_set(:@changed_attributes, changed_attributes)
-      became.instance_variable_set(:@errors, ActiveModel::Errors.new(became))
-      became.errors.instance_variable_set(:@messages, errors.instance_variable_get(:@messages))
+      new_errors = ActiveModel::Errors.new(became)
+      new_errors.copy!(errors)
+      became.instance_variable_set(:@errors, new_errors)
       became.instance_variable_set(:@new_record, new_record?)
       became.instance_variable_set(:@destroyed, destroyed?)
-      became.changed_attributes["_type"] = self.class.to_s
-      became._type = klass.to_s
+      became.changed_attributes[klass.discriminator_key] = self.class.discriminator_value
+      became[klass.discriminator_key] = klass.discriminator_value
 
       # mark embedded docs as persisted
       embedded_relations.each_pair do |name, meta|
@@ -271,20 +272,6 @@ module Mongoid
     def model_key
       @model_cache_key ||= self.class.model_name.cache_key
     end
-
-    # Implement this for calls to flatten on array.
-    #
-    # @example Get the document as an array.
-    #   document.to_ary
-    #
-    # @return [ nil ] Always nil.
-    #
-    # @since 2.1.0
-    def to_ary
-      nil
-    end
-
-    private
 
     def as_attributes
       return attributes if frozen?
@@ -353,7 +340,19 @@ module Mongoid
       #
       # @since 1.0.0
       def _types
-        @_type ||= (descendants + [ self ]).uniq.map(&:to_s)
+        @_type ||= (descendants + [ self ]).uniq.map(&:discriminator_value)
+      end
+
+      # Clear the @_type cache. This is generally called when changing the discriminator
+      # key/value on a class.
+      #
+      # @example Get the types.
+      #   document._mongoid_clear_types
+      #
+      # @api private
+      def _mongoid_clear_types
+        @_type = nil
+        superclass._mongoid_clear_types if hereditary?
       end
 
       # Set the i18n scope to overwrite ActiveModel.

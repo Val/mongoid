@@ -7,40 +7,144 @@ describe Mongoid::Serializable do
 
   describe "#field_names" do
 
-    let(:band) do
-      Band.new
+    let(:guitar) do
+      Guitar.new
     end
 
     it "does not duplicate fields" do
-      expect(band.send(:field_names, {})).to eq(band.fields.except("_type").keys.sort)
+      expect(guitar.send(:field_names, {})).to eq(guitar.fields.except("_type").keys.sort)
+    end
+
+    context "when using a custom discriminator_key" do 
+      before do 
+        Instrument.discriminator_key = "dkey"
+      end
+
+      after do 
+        Instrument.discriminator_key = nil
+      end
+
+      let(:guitar) do
+        Guitar.new
+      end
+  
+      it "includes _type but does not include the new discriminator key" do
+        expect(guitar.send(:field_names, {})).to eq(guitar.fields.except("dkey").keys.sort)
+      end
     end
   end
 
-  describe ".include_root_in_json" do
-
-    let(:person) do
-      Person.new
-    end
-
-    context "when config set to true" do
+  %i(include_root_in_json include_root_in_json?).each do |meth|
+    describe ".#{meth}" do
 
       before do
-        Mongoid.include_root_in_json = true
+        reload_model(:Minim)
       end
 
-      it "returns true" do
-        expect(person.include_root_in_json).to be true
-      end
-    end
-
-    context "when config set to false" do
-
-      before do
+      after do
         Mongoid.include_root_in_json = false
+        reload_model(:Minim)
       end
 
-      it "returns false" do
-        expect(person.include_root_in_json).to be false
+      context "when global config is set to true" do
+
+        before do
+          Mongoid.include_root_in_json = true
+        end
+
+        it "returns true" do
+          expect(Minim.public_send(meth)).to be true
+        end
+
+        context 'when value is overridden to false in the model class' do
+          before do
+            Minim.include_root_in_json = false
+          end
+
+          it 'returns false' do
+            expect(Minim.public_send(meth)).to be false
+          end
+        end
+      end
+
+      context "when global config set to false" do
+
+        before do
+          Mongoid.include_root_in_json = false
+        end
+
+        it "returns false" do
+          expect(Minim.public_send(meth)).to be false
+        end
+
+        context 'when value is overridden to true in the model class' do
+          before do
+            Minim.include_root_in_json = true
+          end
+
+          it 'returns true' do
+            expect(Minim.public_send(meth)).to be true
+          end
+        end
+      end
+    end
+
+    describe "#include_root_in_json" do
+
+      before do
+        reload_model(:Minim)
+      end
+
+      after do
+        Mongoid.include_root_in_json = false
+        reload_model(:Minim)
+      end
+
+      let(:minim) do
+        Minim.new
+      end
+
+      context "when global config is set to true" do
+
+        before do
+          Minim.include_root_in_json.should be false
+          Mongoid.include_root_in_json = true
+        end
+
+        it "returns true" do
+          expect(minim.public_send(meth)).to be true
+        end
+
+        context 'when value is overridden to false in the model class' do
+          before do
+            Minim.include_root_in_json = false
+          end
+
+          it 'returns false' do
+            expect(minim.public_send(meth)).to be false
+          end
+        end
+      end
+
+      context "when global config set to false" do
+
+        before do
+          Mongoid.include_root_in_json = false
+        end
+
+        it "returns false" do
+          expect(minim.public_send(meth)).to be false
+        end
+
+        context 'when value is overridden to true in the model class' do
+          before do
+            Minim.include_root_in_json = true
+          end
+
+          it 'returns true' do
+            expect(minim.public_send(meth)).to be true
+          end
+        end
       end
     end
   end
@@ -773,30 +877,55 @@ describe Mongoid::Serializable do
 
   describe "#to_json" do
 
-    let(:person) do
-      Person.new
+    let(:account) do
+      Account.new
     end
 
-    context "when including root in json" do
+    context "when including root in json via Mongoid" do
 
       before do
+        account.include_root_in_json.should be false
         Mongoid.include_root_in_json = true
       end
 
+      after do
+        Mongoid.include_root_in_json = false
+      end
+
       it "uses the mongoid configuration" do
-        expect(person.to_json).to include("person")
+        expect(JSON.parse(account.to_json)).to have_key("account")
+      end
+    end
+
+    context "when including root in json via class" do
+
+      before do
+        account.include_root_in_json.should be false
+        Account.include_root_in_json = true
+      end
+
+      after do
+        Account.include_root_in_json = false
+      end
+
+      it "uses the class configuration" do
+        expect(JSON.parse(account.to_json)).to have_key("account")
       end
     end
 
     context "when not including root in json" do
 
       before do
-        Mongoid.include_root_in_json = false
+        account.include_root_in_json.should be false
       end
 
       it "uses the mongoid configuration" do
-        expect(person.to_json).to_not include("person")
+        expect(JSON.parse(account.to_json)).not_to have_key("account")
       end
+    end
+
+    let(:person) do
+      Person.new
     end
 
     context "when serializing a relation directly" do

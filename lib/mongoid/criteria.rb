@@ -20,9 +20,17 @@ module Mongoid
   # against the database.
   class Criteria
     include Enumerable
+
+    # @api private
+    alias :_enumerable_find :find
+
     include Contextual
     include Queryable
     include Findable
+
+    # @api private
+    alias :_findable_find :find
+
     include Inspectable
     include Includable
     include Marshalable
@@ -53,6 +61,48 @@ module Mongoid
     def ==(other)
       return super if other.respond_to?(:selector)
       entries == other
+    end
+
+    # Finds one or many documents given the provided _id values, or filters
+    # the documents in the current scope in the application process space
+    # after loading them if needed.
+    #
+    # If this method is not given a block, it delegates to +Findable#find+
+    # and finds one or many documents for the provided _id values.
+    #
+    # If this method is given a block, it delegates to +Enumerable#find+ and
+    # returns the first document of those found by the current Crieria object
+    # for which the block returns a truthy value.
+    #
+    # Note that the "default proc" argument of Enumerable is not specially
+    # treated by Mongoid - the decision between delegating to +Findable+ vs
+    # +Enumerable+ is made solely based on whether +find+ is passed a block.
+    #
+    # @example Finds a document by its _id, invokes Findable#find.
+    #   critera.find("1234")
+    #
+    # @example Finds the first matching document using a block, invokes Enumerable#find.
+    #   criteria.find { |item| item.name == "Depeche Mode" }
+    #
+    # @example Finds the first matching document using a block using the default Proc, invokes Enumerable#find.
+    #   criteria.find(-> { "Default Band" }) { |item| item.name == "Milwaukee Mode" }
+    #
+    # @example Tries to find a document whose _id is the stringification of the provided Proc, typically failing.
+    #   enumerator = criteria.find(-> { "Default Band" })
+    #
+    # @return [ Document | Array<Document> | nil ] A document or matching documents.
+    #
+    # @raise Errors::DocumentNotFound If the parameters were _id values and
+    #   not all documents are found and the +raise_not_found_error+
+    #   Mongoid configuration option is truthy.
+    #
+    # @see https://ruby-doc.org/core/Enumerable.html#method-i-find
+    def find(*args, &block)
+      if block_given?
+        _enumerable_find(*args, &block)
+      else
+        _findable_find(*args)
+      end
     end
 
     # Needed to properly get a criteria back as json
@@ -169,7 +219,7 @@ module Mongoid
     # @since 2.0.0
     def field_list
       if options[:fields]
-        options[:fields].keys.reject{ |key| key == "_type" }
+        options[:fields].keys.reject{ |key| key == klass.discriminator_key }
       else
         []
       end
@@ -286,16 +336,15 @@ module Mongoid
     #
     # @since 1.0.0
     def only(*args)
-      return clone if args.flatten.empty?
       args = args.flatten
+      return clone if args.empty?
       if (args & Fields::IDS).empty?
         args.unshift(:_id)
       end
       if klass.hereditary?
-        super(*args.push(:_type))
-      else
-        super(*args)
+        args.push(klass.discriminator_key.to_sym)
       end
+      super(*args)
     end
 
     # Set the read preference for the criteria.
@@ -325,7 +374,7 @@ module Mongoid
     #
     # @since 4.0.3
     def without(*args)
-      args -= Fields::IDS
+      args -= id_fields
       super(*args)
     end
 
@@ -379,7 +428,7 @@ module Mongoid
     #
     # @return [ Criteria ] The cloned criteria.
     def type(types)
-      any_in(_type: Array(types))
+      any_in(self.discriminator_key.to_sym => Array(types))
     end
 
     # This is the general entry point for most MongoDB queries. This either
@@ -400,9 +449,22 @@ module Mongoid
     # @return [ Criteria ] The cloned selectable.
     #
     # @since 1.0.0
-    def where(expression)
-      if expression.is_a?(::String) && embedded?
-        raise Errors::UnsupportedJavascript.new(klass, expression)
+    def where(*args)
+      # Historically this method required exactly one argument.
+      # As of https://jira.mongodb.org/browse/MONGOID-4804 it also accepts
+      # zero arguments.
+      # The underlying where implemetation that super invokes supports
+      # any number of arguments, but we don't presently allow mutiple
+      # arguments through this method. This API can be reconsidered in the
+      # future.
+      if args.length > 1
+        raise ArgumentError, "Criteria#where requires zero or one arguments (given #{args.length})"
+      end
+      if args.length == 1
+        expression = args.first
+        if expression.is_a?(::String) && embedded?
+          raise Errors::UnsupportedJavascript.new(klass, expression)
+        end
       end
       super
     end
@@ -437,7 +499,13 @@ module Mongoid
     #
     # @since 3.1.0
     def for_js(javascript, scope = {})
-      js_query(BSON::CodeWithScope.new(javascript, scope))
+      code = if scope.empty?
+        # CodeWithScope is not supported for $where as of MongoDB 4.4
+        BSON::Code.new(javascript)
+      else
+        BSON::CodeWithScope.new(javascript, scope)
+      end
+      js_query(code)
     end
 
     private
@@ -536,8 +604,8 @@ module Mongoid
     # @since 3.0.3
     def type_selectable?
       klass.hereditary? &&
-        !selector.keys.include?("_type") &&
-        !selector.keys.include?(:_type)
+        !selector.keys.include?(self.discriminator_key) &&
+        !selector.keys.include?(self.discriminator_key.to_sym)
     end
 
     # Get the selector for type selection.
@@ -553,9 +621,9 @@ module Mongoid
     def type_selection
       klasses = klass._types
       if klasses.size > 1
-        { _type: { "$in" => klass._types }}
+        { klass.discriminator_key.to_sym => { "$in" => klass._types }}
       else
-        { _type: klass._types[0] }
+        { klass.discriminator_key.to_sym => klass._types[0] }
       end
     end
 

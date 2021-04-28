@@ -1,5 +1,7 @@
-# Mongoid
-[![Code Climate](https://codeclimate.com/github/mongodb/mongoid.svg)](https://codeclimate.com/github/mongodb/mongoid)
+Mongoid
+[![Gem Version][rubygems-img]][rubygems-url]
+[![Inline docs][inch-img]][inch-url]
+====
 
 Mongoid is an ODM (Object-Document Mapper) framework for MongoDB in Ruby.
 
@@ -17,9 +19,9 @@ Compatibility
 
 Mongoid supports and is tested against:
 
-- MRI 2.2-2.6
-- JRuby 9.1-9.2
-- MongoDB server 2.6-4.0
+- MRI 2.3-2.7
+- JRuby 9.2
+- MongoDB server 2.6-4.4
 
 Issues
 ------
@@ -31,14 +33,14 @@ Support
 -------
 
 * [Stack Overflow](http://stackoverflow.com/questions/tagged/mongoid)
-* [Mongoid Google Group](http://groups.google.com/group/mongoid)
+* [MongoDB Community Forum](https://developer.mongodb.com/community/forums/tags/c/drivers-odms-connectors/7/mongoid-odm)
 * [#mongoid](http://webchat.freenode.net/?channels=mongoid) on Freenode IRC
 
 License
 -------
 
 Copyright (c) 2009-2016 Durran Jordan
-Copyright (c) 2015-2019 MongoDB, Inc.
+Copyright (c) 2015-2020 MongoDB, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -63,3 +65,8 @@ Credits
 -------
 
 Durran Jordan: durran at gmail dot com
+
+[rubygems-img]: https://badge.fury.io/rb/mongoid.svg
+[rubygems-url]: http://badge.fury.io/rb/mongoid
+[inch-img]: http://inch-ci.org/github/mongodb/mongoid.svg?branch=master
+[inch-url]: http://inch-ci.org/github/mongodb/mongoid

@@ -118,22 +118,71 @@ module Mongoid
       end
 
       # Returns a subset of __selected_fields attribute applicable to the
-      # (embedded) association with the given key.
+      # (embedded) association with the given key, or nil if no projection
+      # is to be performed.
       #
       # For example, if __selected_fields is {'a' => 1, 'b.c' => 2, 'b.c.f' => 3},
       # and assoc_key is 'b', return value would be {'c' => 2, 'c.f' => 3}.
       #
+      # @param [ String ] assoc_key
+      #
+      # @return [ Hash | nil ]
+      #
       # @api private
       def _mongoid_filter_selected_fields(assoc_key)
         return nil unless __selected_fields
+
+        projecting_assoc = false
+
         filtered = {}
         __selected_fields.each do |k, v|
           bits = k.split('.')
+
+          # If we are asked to project an association, we need all of that
+          # association's fields. However, we may be asked to project
+          # an association *and* its fields in the same query. In this case
+          # behavior differs according to server version:
+          #
+          # 4.2 and lower take the most recent projection specification, meaning
+          # projecting foo followed by foo.bar effectively projects foo.bar and
+          # projecting foo.bar followed by foo effectively projects foo.
+          # To match this behavior we need to track when we are being asked
+          # to project the association and when we are asked to project a field,
+          # and if we are asked to project the association last we need to
+          # remove any field projections.
+          #
+          # 4.4 (and presumably higher) do not allow projection to be on an
+          # association and its field, so it doesn't matter what we do. Hence
+          # we just need to handle the 4.2 and lower case correctly.
           if bits.first == assoc_key
-            bits.shift
-            filtered[bits.join('.')] = v
+            # Projecting the entire association OR some of its fields
+            if bits.length > 1
+              # Projecting a field
+              bits.shift
+              filtered[bits.join('.')] = v
+              projecting_assoc = false
+            else
+              # Projecting the entire association
+              projecting_assoc = true
+            end
           end
         end
+
+        if projecting_assoc
+          # The last projection was of the entire association; we may have
+          # also been projecting fields, but discard the field projections
+          # and return nil indicating we want the entire association.
+          return nil
+        end
+
+        # Positional projection is specified as "foo.$". In this case the
+        # document that the $ is referring to should be retrieved with all
+        # fields. See https://docs.mongodb.com/manual/reference/operator/projection/positional/
+        # and https://jira.mongodb.org/browse/MONGOID-4769.
+        if filtered.keys == %w($)
+          filtered = nil
+        end
+
         filtered
       end
 
@@ -251,7 +300,7 @@ module Mongoid
         ids_method = "#{association.name.to_s.singularize}_ids"
         association.inverse_class.tap do |klass|
           klass.re_define_method(ids_method) do
-            send(association.name).only(:id).map(&:id)
+            send(association.name).only(:_id).map(&:_id)
           end
         end
       end

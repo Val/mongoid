@@ -1,6 +1,6 @@
-============
+************
 Associations
-============
+************
 
 .. default-domain:: mongodb
 
@@ -11,239 +11,398 @@ Associations
    :class: singlecol
 
 Referenced Associations
------------------------
+=======================
 
 Mongoid supports the ``has_one``, ``has_many``, ``belongs_to`` and
 ``has_and_belongs_to_many`` associations familiar to ActiveRecord users.
 
 
 Has One
-*******
+-------
 
-One to one associations where documents are stored in separate collections
-are defined using ``has_one`` and ``belongs_to`` macros.
-
-Defining
-~~~~~~~~
-
-The parent document of the association should use the ``has_one`` macro to
-indicate is has one referenced child, and the document that is referenced
-should use ``belongs_to``.
+Use the ``has_one`` macro to declare that the parent has a child stored in
+a separate collection. The child is optional by default:
 
 .. code-block:: ruby
 
   class Band
     include Mongoid::Document
+    
     has_one :studio
   end
 
-  class Studio
-    include Mongoid::Document
-    field :name, type: String
-    belongs_to :band
-  end
-
-Definitions are required on both sides to the association in order for it to
-work properly.
-
-Storage
-~~~~~~~
-
-When defining an association of this nature, each document is stored in its
-respective collection, and the child document contains a "foreign key"
-reference to the parent:
+When using ``has_one``, the child model must use ``belongs_to`` to declare the
+association with the parent:
 
 .. code-block:: ruby
 
-  # The parent band document.
-  { "_id" : ObjectId("4d3ed089fb60ab534684b7e9") }
+  class Studio
+    include Mongoid::Document
+    
+    belongs_to :band
+  end
 
-  # The child studio document.
-  {
-    "_id" : ObjectId("4d3ed089fb60ab534684b7f1"),
-    "band_id" : ObjectId("4d3ed089fb60ab534684b7e9")
-  }
+Given the above definitions, every child document contains a reference to
+its respective parent document:
+
+.. code-block:: ruby
+
+  band = Band.create!(studio: Studio.new)
+  # => #<Band _id: 600114fa48966848ad5bd392, >
+
+  band.studio
+  # => #<Studio _id: 600114fa48966848ad5bd391, band_id: BSON::ObjectId('600114fa48966848ad5bd392')>
+
+Use validations to require that the child is present:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
+    has_one :studio
+    
+    validates_presence_of :studio
+  end
 
 
 Has Many
-********
+--------
 
-One to many associations where the children are stored in a separate
-collection from the parent document are defined using Mongoid's ``has_many``
-and ``belongs_to`` macros.
-
-Defining
-~~~~~~~~
-
-The parent document of the association should use the ``has_many`` macro to
-indicate is has n number of referenced children, where the document that is
-referenced uses ``belongs_to``.
+Use the ``has_many`` association to declare that the parent has zero or more
+children stored in a separate collection:
 
 .. code-block:: ruby
 
   class Band
     include Mongoid::Document
+    
     has_many :members
   end
 
-  class Member
-    include Mongoid::Document
-    field :name, type: String
-    belongs_to :band
-  end
-
-Definitions are required on both sides to the association in order for it
-to work properly.
-
-Storage
-~~~~~~~
-
-When defining an association of this nature, each document is stored in its
-respective collection, and the child document contains a "foreign key"
-reference to the parent.
+Like with ``has_one``, the child model must use ``belongs_to`` to declare the
+association with the parent:
 
 .. code-block:: ruby
 
-  # The parent band document.
-  { "_id" : ObjectId("4d3ed089fb60ab534684b7e9") }
+  class Member
+    include Mongoid::Document
+    
+    belongs_to :band
+  end
 
-  # A child member document.
-  {
-    "_id" : ObjectId("4d3ed089fb60ab534684b7f1"),
-    "band_id" : ObjectId("4d3ed089fb60ab534684b7e9")
-  }
+Also as with ``has_one``, the child documents contain references to their
+respective parents:
 
-Belongs To
-**********
+.. code-block:: ruby
 
-A ``belongs_to`` macro is used when a document is the child in a ``has_one``
-or ``has_many`` association. By default, in order for a document to
-be saved, each of its ``belongs_to`` associations must be provided a value.
-To override this requirement, you can use the option ``optional: false``
-on the ``belong_to`` association.
+  band = Band.create!(members: [Member.new])
+  # => #<Band _id: 6001166d4896684910b8d1c5, >
 
-Defining
-~~~~~~~~
+  band.members
+  # => [#<Member _id: 6001166d4896684910b8d1c6, band_id: BSON::ObjectId('6001166d4896684910b8d1c5')>]
 
-The child document of the association uses the ``belongs_to`` macro to indicate
-it is associated with a parent. The document on the ``belongs_to`` side
-stores the reference to the parent.
+Use validations to require that at least one child is present:
 
 .. code-block:: ruby
 
   class Band
     include Mongoid::Document
+    
+    has_many :members
+    
+    validates_presence_of :members
+  end
+
+
+Queries
+```````
+
+.. _has-many-any:
+
+``any?``
+~~~~~~~~
+
+Use the ``any?`` method on the association to efficiently determine whether
+the association contains any documents, without retrieving the entire set
+of documents from the database:
+
+.. code-block:: ruby
+
+  band = Band.first
+  band.members.any?
+
+``any?`` also implements the `Enumerable#any? API
+<https://ruby-doc.org/core/Enumerable.html#method-i-any-3F>`_, allowing
+filtering with a block:
+
+.. code-block:: ruby
+
+  band = Band.first
+  band.members.any? { |member| member.instrument == 'piano' }
+
+... or by a class name which can be useful for polymorphic associations:
+
+.. code-block:: ruby
+
+  class Drummer < Member
+  end
+  
+  band = Band.first
+  band.members.any?(Drummer)
+
+If the association is already loaded, ``any?`` inspects the loaded
+documents and does not query the database:
+
+.. code-block:: ruby
+
+  band = Band.first
+  # Queries the database
+  band.members.any?
+  
+  band.members.to_a
+  
+  # Does not query the database
+  band.members.any?
+
+Note that simply calling ``any?`` would *not* load the association
+(since ``any?`` only retrtieves the _id field of the first matching document).
+
+``exists?``
+~~~~~~~~~~~
+
+The ``exists?`` method on the association determines whether there are
+any *persisted* documents in the association. Unlike the ``any?`` method:
+
+- ``exists?`` always queries the database, even if the association is already
+  loaded.
+- ``exists?`` does not consider non-persisted documents.
+- ``exists?`` does not allow filtering in the application like ``any?`` does,
+  and does not take any arguments.
+
+The following examle illustrates the difference between ``exists?`` and
+``any?``:
+
+.. code-block:: ruby
+
+  band = Band.create!
+  # Member is not persisted.
+  band.members.build
+  
+  band.members.any?
+  # => true
+  band.members.exists?
+  # => false
+  
+  # Persist the member.
+  band.members.map(&:save!)
+  
+  band.members.any?
+  # => true
+  band.members.exists?
+  # => true
+
+
+Belongs To
+----------
+
+Use the ``belongs_to`` macro to associate a child with a parent stored in a
+separate collection. The ``_id`` of the parent (if a parent is associated)
+is stored in the child.
+
+By default, if a ``belongs_to`` association is defined on a model, it must be
+provided a value for a model instance to be saved. Use the ``optional: true```
+option to make the instances persistable without specifying the parent:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
     has_one :studio
   end
 
   class Studio
     include Mongoid::Document
-    field :name, type: String
-    belongs_to :band
+    
+    belongs_to :band, optional: true
   end
+  
+  studio = Studio.create!
+  # => #<Studio _id: 600118184896684987aa884f, band_id: nil>
 
-Definitions are required on both sides to the association in order for it to
-work properly.
+To change the default behavior of ``belongs_to`` associations to not require
+their respective parents globally, set the ``belongs_to_required_by_default``
+:ref:`configuration option <configuration-options>` to ``false``.
 
-Storage
-~~~~~~~
-
-When defining an association of this nature, each document is stored in its respective collection,
-but the child document contains a "foreign key" reference to the parent.
-
-.. code-block:: ruby
-
-  # The parent band document.
-  { "_id" : ObjectId("4d3ed089fb60ab534684b7e9") }
-
-  # The child studio document.
-  {
-    "_id" : ObjectId("4d3ed089fb60ab534684b7f1"),
-    "band_id" : ObjectId("4d3ed089fb60ab534684b7e9")
-  }
-
-Has And Belongs To Many
-***********************
-
-Many to many associations in Mongoid are defined using the
-``has_and_belongs_to_many`` macro. Unlike ActiveRecord's
-``has_and_belongs_to_many``, in Mongoid there is no "join collection" -
-the foreign key ids are stored as arrays on both sides of the association.
-
-``has_and_belongs_to_many`` association has no embedded equivalent.
-
-Defining
-~~~~~~~~
-
-Both sides of the association use the same macro.
+Although ``has_one`` and ``has_many`` associations require the
+corresponding ``belongs_to`` association to be defined on the child,
+``belongs_to`` may also be used without a corresponding ``has_one`` or
+``has_many`` macro. In this case the child is not accessible from the parent
+but the parent is accessible from the child:
 
 .. code-block:: ruby
 
   class Band
     include Mongoid::Document
+  end
+
+  class Studio
+    include Mongoid::Document
+    
+    belongs_to :band
+  end
+
+For clarity it is possible to add the ``inverse_of: nil`` option in cases when
+the parent does not define the association:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+  end
+
+  class Studio
+    include Mongoid::Document
+    
+    belongs_to :band, inverse_of: nil
+  end
+
+
+Has And Belongs To Many
+-----------------------
+
+Use the ``has_and_belongs_to_many`` macro to declare a many-to-many
+association:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    
     has_and_belongs_to_many :tags
   end
 
   class Tag
     include Mongoid::Document
-    field :name, type: String
+    
     has_and_belongs_to_many :bands
   end
 
-You can create a one sided many to many if you want to mimic a has_many
-that stores the keys as an array on the parent.
+Both model instances store a list of ids of the associated models, if any:
+
+.. code-block:: ruby
+
+  band = Band.create!(tags: [Tag.create!])
+  # => #<Band _id: 60011d554896684b8b910a2a, tag_ids: [BSON::ObjectId('60011d554896684b8b910a29')]>
+  
+  band.tags
+  # => [#<Tag _id: 60011d554896684b8b910a29, band_ids: [BSON::ObjectId('60011d554896684b8b910a2a')]>]
+
+You can create a one-sided ``has_and_belongs_to_many`` association to store
+the ids only in one document using the ``inverse_of: nil`` option:
 
 .. code-block:: ruby
 
   class Band
     include Mongoid::Document
+    
     has_and_belongs_to_many :tags, inverse_of: nil
   end
 
   class Tag
     include Mongoid::Document
-    field :name, type: String
   end
 
-Storage
-~~~~~~~
+  band = Band.create!(tags: [Tag.create!])
+  # => #<Band _id: 60011dbc4896684bbbaa9255, tag_ids: [BSON::ObjectId('60011dbc4896684bbbaa9254')]>
 
-When defining an association of this nature, each document is stored in its
-respective collection, and each document contains a "foreign key" reference
-to the other in the form of an array.
+  band.tags
+  # => [#<Tag _id: 60011dbc4896684bbbaa9254, >]
+
+A one-sided ``has_and_belongs_to_many`` association is, naturally, only
+usable from the model where it is defined.
+
+
+Querying Referenced Associations
+--------------------------------
+
+In most cases, efficient queries across referenced associations (and in general
+involving data or conditions or multiple collections) are performed using
+the aggregation pipeline. Mongoid helpers for constructing aggregation pipeline
+queries are described in the :ref:`aggregation pipeline <aggregation-pipeline>`
+section.
+
+For simple queries, the use of aggregation pipeline may be avoided and
+associations may be queried directly. When querying associations directly,
+all conditions must be on that association's collection only (which typically
+means association in question and any associations embedded in it).
+
+For example, given the following models:
 
 .. code-block:: ruby
 
-  # The band document.
-  {
-    "_id" : ObjectId("4d3ed089fb60ab534684b7e9"),
-    "tag_ids" : [ ObjectId("4d3ed089fb60ab534684b7f2") ]
-  }
+  class Band
+    include Mongoid::Document
+    
+    has_many :tours
+    has_many :awards
+    
+    field :name, type: String
+  end
 
-  # The tag document.
-  {
-    "_id" : ObjectId("4d3ed089fb60ab534684b7f2"),
-    "band_ids" : [ ObjectId("4d3ed089fb60ab534684b7e9") ]
-  }
+  class Tour
+    include Mongoid::Document
+    
+    belongs_to :band
+    
+    field :year, type: Integer
+  end
+
+  class Award
+    include Mongoid::Document
+    
+    belongs_to :band
+    
+    field :name, type: String
+  end
+
+One could retrieve all bands that have toured since 2000 as follows:
+
+.. code-block:: ruby
+
+  band_ids = Tour.where(year: {'$gte' => 2000}).pluck(:band_id)
+  bands = Band.find(band_ids)
+
+The conditions on ``Tour`` can be arbitrarily complex, but they must all
+be on the same ``Tour`` document (or documents embedded in ``Tour``).
+
+To find awards for bands that have toured since 2000:
+
+.. code-block:: ruby
+
+  band_ids = Tour.where(year: {'$gte' => 2000}).pluck(:band_id)
+  awards = Award.where(band_id: {'$in' => band_ids})
+
 
 Embedded Associations
----------------------
+=====================
 
 Thanks to MongoDB's document model, Mongoid also offers embedded associations
 which allow documents of different types to be stored hierarchically
 in the same collection. Embedded associations are defined using
 ``embeds_one``, ``embeds_many`` and ``embedded_in`` macros, plus
-``recursively_embeds_one`` and ``recursively_embeds_many``for recursive
+``recursively_embeds_one`` and ``recursively_embeds_many`` for recursive
 embedding.
 
 Embeds One
-**********
+----------
 
 One to one associations where the children are embedded in the parent
 document are defined using Mongoid's ``embeds_one`` and ``embedded_in`` macros.
 
 Defining
-~~~~~~~~
+````````
 
 The parent document of the association should use the ``embeds_one`` macro to
 indicate is has one embedded child, where the document that is embedded uses
@@ -256,7 +415,7 @@ in order for it to work properly.
      include Mongoid::Document
      embeds_one :label
    end
-  
+
    class Label
      include Mongoid::Document
      field :name, type: String
@@ -264,7 +423,7 @@ in order for it to work properly.
    end
 
 Storage
-~~~~~~~
+```````
 
 Documents that are embedded using the ``embeds_one`` macro are stored as a
 hash inside the parent in the parent's database collection.
@@ -291,13 +450,13 @@ attribute other than the name, by providing the ``:store_as`` option.
 
 
 Embeds Many
-***********
+-----------
 
 One to many relationships where the children are embedded in the parent
 document are defined using Mongoid's ``embeds_many`` and ``embedded_in`` macros.
 
 Defining
-~~~~~~~~
+````````
 
 The parent document of the association should use the ``embeds_many`` macro
 to indicate it has many embedded children, where the document that is
@@ -318,7 +477,7 @@ the association in order for it to work properly.
   end
 
 Storage
-~~~~~~~
+```````
 
 Documents that are embedded using the ``embeds_many`` macro are stored as
 an array of hashes inside the parent in the parent's database collection.
@@ -346,7 +505,7 @@ attribute other than the name, by providing the ``:store_as`` option.
   end
 
 Recursive Embedding
-*******************
+-------------------
 
 A document can recursively embed itself using ``recursively_embeds_one`` or
 ``recursively_embeds_many``, which provides accessors for the parent and
@@ -359,29 +518,29 @@ children via ``parent_`` and ``child_`` methods.
      field :name, type: String
      recursively_embeds_many
    end
-  
+
    root = Tag.new(name: "programming")
    child_one = root.child_tags.build
    child_two = root.child_tags.build
-  
+
    root.child_tags # [ child_one, child_two ]
    child_one.parent_tag # [ root ]
    child_two.parent_tag # [ root ]
-  
+
    class Node
      include Mongoid::Document
      recursively_embeds_one
    end
-  
+
    root = Node.new
    child = Node.new
    root.child_node = child
-  
+
    root.child_node # child
    child.parent_node # root
 
 Referencing Vs Embedding
-************************
+------------------------
 
 While a complete discussion of referencing vs embedding is beyond the scope
 of this tutorial, here are some high level considerations for choosing
@@ -411,7 +570,7 @@ help of MongoDB projection operation:
     field :started_on, type: Date
     embeds_one :label
   end
-  
+
   class Label
     include Mongoid::Document
     field :name, type: String
@@ -427,11 +586,172 @@ help of MongoDB projection operation:
   Band.where(started_on: {'$gt' => Time.now - 1.year}).only(:label).map(&:label).compact.uniq
 
 
+Querying Embedded Associations
+------------------------------
+
+When querying top-level documents, conditions can be specified on documents
+in embedded associations using the dot notation. For example, given the
+following models:
+
+.. code-block:: ruby
+
+  class Band
+    include Mongoid::Document
+    embeds_many :tours
+    embeds_many :awards
+    field :name, type: String
+  end
+
+  class Tour
+    include Mongoid::Document
+    embedded_in :band
+    field :year, type: Integer
+  end
+
+  class Award
+    include Mongoid::Document
+    embedded_in :band
+    field :name, type: String
+  end
+
+To retrieve bands based on tour attributes, use the dot notation as follows:
+
+.. code-block:: ruby
+
+  # Get all bands that have toured since 2000
+  Band.where('tours.year' => {'$gte' => 2000})
+
+To retrieve only documents of embedded associations, without retrieving
+top-level documents, use the ``pluck`` projection method:
+
+.. code-block:: ruby
+
+  # Get awards for bands that have toured since 2000
+  Band.where('tours.year' => {'$gte' => 2000}).pluck(:awards)
+
+.. _embedded-matching:
+
+Querying Loaded Associations
+````````````````````````````
+
+Mongoid query methods can be used on embedded associations of documents which
+are already loaded in the application. This mechanism is sometimes called
+"embedded matching" or "embedded document matching" and it is implemented
+entirely in Mongoid - the queries are NOT sent to the server.
+
+Embedded matching is supported for most general-purpose query operators. It
+is not implemented for :ref:`text search <text-search>`, :manual:`geospatial query
+operators </reference/operator/query-geospatial/>`,
+operators that execute JavaScript code (:manual:`$where </reference/operator/query/where/>`)
+and operators that are implemented via other server functionality such as
+:manual:`$expr <https://docs.mongodb.com/manual/reference/operator/query/expr/>`
+and :manual:`$jsonSchema <https://docs.mongodb.com/manual/reference/operator/query/jsonSchema/>`.
+
+The following operators are supported:
+
+- :manual:`Bitwise operators </reference/operator/query-bitwise/>`
+- :manual:`Comparison operators </reference/operator/query-comparison/>`
+- :manual:`Logical operators </reference/operator/query-logical/>`
+- :manual:`$comment </reference/operator/query/comment/>`
+- :manual:`$exists </reference/operator/query/exists/>`
+- :manual:`$mod </reference/operator/query/mod/>`
+- :manual:`$type </reference/operator/query/type/>`
+- :manual:`$regex </reference/operator/query/regex/>` (``$options`` field
+  is only supported when the ``$regex`` argument is a string)
+- :manual:`Array query operators </reference/operator/query-array/>`
+
+For example, using the model definitions just given, we could query
+tours on a loaded band:
+
+.. code-block:: ruby
+
+  band = Band.where(name: 'Astral Projection').first
+  tours = band.tours.where(year: {'$gte' => 2000})
+
+Embedded Matching Vs Server Behavior
+````````````````````````````````````
+
+Mongoid aims to provide the same semantics when performing embedded matching
+as those of MongoDB server. This means, for example, when the server only
+accepts arguments of particular types for a particular operator, Mongoid
+would also only accept arguments of the corresponding types.
+
+The following deviations are known:
+
+- Mongoid embedded matchers, because they are implemented on the client side,
+  behave the same regardless of the server version that backs the application.
+  As such, it is possible for Mongoid to deviate from server behavior if
+  the server itself behaves differently in different versions. All operators are implemented in
+  Mongoid regardless of backing deployment's server version.
+  
+  As of this writing, the known cases of such deviation are:
+
+   - 3.2 and earlier servers not validating ``$size`` arguments as strictly as newer versions do.
+   - 4.0 and earlier servers not validating ``$type`` arguments as strictly as newer versions
+     do (allowing invalid arguments like 0, for example).
+   - 3.2 and earlier servers not supporting ``Decimal128`` for ``$type``, as well as allowing invalid
+     arguments such as negative numbers (smaller than -1) and numbers that are greater than 19
+     (not including 127, the argument for the ``MaxKey`` type).
+   - 3.4 and earlier servers not supporting arrays for ``$type``.
+   - 3.0 and earlier servers not supporting bitwise operators.
+
+
+- Mongoid DSL expands ``Range`` arguments to hashes with ``$gte`` and ``$lte``
+  conditions. `In some cases <https://jira.mongodb.org/browse/MONGOID-4908>`_
+  this creates bogus queries. Embedded matchers raise the ``InvalidQuery``
+  exception in these cases. The operators that are known to be affected are
+  ``$elemMatch``, ``$eq``, ``$gt``, ``$gte``, ``$lt``, ``$lte`` and ``$ne``.
+
+- When performing embedded matching with ``$regex``, `it is not currently
+  possible <https://jira.mongodb.org/browse/MONGOID-4936>`_ to specify a
+  regular expression object as the pattern and also provide options.
+
+In general, Mongoid adopts the behavior of current server versions and validates more strictly.
+
+
+.. _omit-id:
+
+Omitting ``_id`` Fields
+-----------------------
+
+By default, Mongoid adds an ``_id`` field to each embedded document. This
+permits easy referencing of and operations on the embedded documents.
+
+These ``_id`` fields may be omitted to save storage space. To do so,
+:ref:`override the _id field definition in the child documents <custom-id>`
+and remove the default value:
+
+.. code-block:: ruby
+
+  class Order
+    include Mongoid::Document
+    
+    embeds_many :line_items
+  end
+  
+  class LineItem
+    include Mongoid::Document
+    
+    embedded_in :order
+    
+    field :_id, type: Object
+  end
+
+In the current version of Mongoid the field definition is required, but
+without a default value specified no value will be stored in the database.
+A future version of Mongoid may allow removing previously defined fields.
+
+.. note::
+
+  Removing the ``_id`` field means that embedded documents must be identified
+  by their content attribute values during queries, updates and deletes.
+
+
 Common Behavior
----------------
+===============
 
 Extensions
-**********
+----------
 
 All associations can have extensions, which provides a way to add application specific
 functionality to the association. They are defined by providing a block to the association definition.
@@ -445,16 +765,16 @@ functionality to the association. They are defined by providing a block to the a
          where(country: country).first
        end
        def chinese
-         @target.select { |address| address.country == "China" }
+         _target.select { |address| address.country == "China" }
        end
      end
    end
-  
+
    person.addresses.find_by_country("Mongolia") # returns address
    person.addresses.chinese # returns [ address ]
 
 Custom Association Names
-************************
+------------------------
 
 You can name your associations whatever you like, but if the class cannot be inferred by
 Mongoid from the name, and neither can the opposite side you'll want to provide the
@@ -462,18 +782,18 @@ macro with some additional options to tell Mongoid how to hook them up.
 
 .. code-block:: ruby
 
-   class Lush
+   class Car
      include Mongoid::Document
-     embeds_one :whiskey, class_name: "Drink", inverse_of: :alcoholic
+     embeds_one :engine, class_name: "Motor", inverse_of: :machine
    end
-   
-   class Drink
+
+   class Motor
      include Mongoid::Document
-     embedded_in :alcoholic, class_name: "Lush", inverse_of: :whiskey
+     embedded_in :machine, class_name: "Car", inverse_of: :engine
    end
 
 Custom Primary & Foreign Keys
-*****************************
+-----------------------------
 
 The fields used when looking up associations can be explicitly specified.
 The default is to use ``id`` on the "parent" association and ``#{association_name}_id``
@@ -485,12 +805,12 @@ on the "child" association, for example with a has_many/belongs_to:
     include Mongoid::Document
     has_many :emails
   end
-  
+
   class Email
     include Mongoid::Document
     belongs_to :company
   end
-  
+
   company = Company.find(id)
   # looks up emails where emails.company_id == company.id
   company.emails
@@ -515,7 +835,7 @@ association:
     field :c_ref, type: String
     belongs_to :company, foreign_key: 'c_ref', primary_key: 'c'
   end
-  
+
   company = Company.find(id)
   # looks up emails where emails.c_ref == company.c
   company.emails
@@ -539,37 +859,37 @@ An example might make this more clear:
 
   class Company
     include Mongoid::Document
-    
+
     field :c_id, type: Integer
     field :e_ids, type: Array
-    
+
     has_and_belongs_to_many :employees,
       primary_key: :e_id, foreign_key: :e_ids,
       inverse_primary_key: :c_id, inverse_foreign_key: :c_ids
   end
-  
+
   class Employee
     include Mongoid::Document
-    
+
     field :e_id, type: Integer
     field :c_ids, type: Array
-    
+
     has_and_belongs_to_many :companies,
       primary_key: :c_id, foreign_key: :c_ids,
       inverse_primary_key: :e_id, inverse_foreign_key: :e_ids
   end
-  
+
   company = Company.create!(c_id: 123)
   # => #<Company _id: 5c565ece026d7c461d8a9d4e, c_id: 123, e_ids: nil>
-  
+
   employee = Employee.create!(e_id: 456)
   # => #<Employee _id: 5c565ee8026d7c461d8a9d4f, e_id: 456, c_ids: nil>
 
   company.employees << employee
-  
+
   company
   # => #<Company _id: 5c565ece026d7c461d8a9d4e, c_id: 123, e_ids: [456]>
-  
+
   employee
   # => #<Employee _id: 5c5883ce026d7c4b9e244c0c, e_id: 456, c_ids: [123]>
 
@@ -580,7 +900,7 @@ allowed in the field, the field is created with a type of Object. It is a
 good idea to explicitly define the field with the appropriate type.
 
 Validations
-***********
+-----------
 
 It is important to note that by default, Mongoid will validate the children of any
 association that are loaded into memory via a ``validates_associated``. The associations that
@@ -598,14 +918,14 @@ If you do not want this behavior, you may turn it off when defining the associat
 
    class Person
      include Mongoid::Document
-   
+
      embeds_many :addresses, validate: false
      has_many :posts, validate: false
    end
 
 
 Polymorphism
-************
+------------
 
 One to one and one to many associations support polymorphism, which is
 having a single association potentially contain objects of different classes.
@@ -616,25 +936,25 @@ have managers as follows:
 
   class Department
     include Mongoid::Document
-    
+
     has_one :manager, as: :unit
   end
-  
+
   class Team
     include Mongoid::Document
-    
+
     has_one :manager, as: :unit
   end
-   
+
   class Manager
     include Mongoid::Document
-    
+
     belongs_to :unit, polymorphic: true
   end
-  
+
   dept = Department.create!
   team = Team.create!
-  
+
   alice = Manager.create!(unit: dept)
   alice.unit == dept
   # => true
@@ -649,13 +969,13 @@ polymorphic association:
 
   class Product
     include Mongoid::Document
-    
+
     field :name, type: String
     has_and_belongs_to_many :bundles
-    
+
     embeds_many :prices, as: :item
   end
-  
+
   class Bundle
     include Mongoid::Document
 
@@ -664,13 +984,13 @@ polymorphic association:
 
     embeds_many :prices, as: :item
   end
-  
+
   class Price
     include Mongoid::Document
-    
+
     embedded_in :item, polymorphic: true
   end
-  
+
   pants = Product.create!(name: 'Pants',
     prices: [Price.new, Price.new])
   costume = Bundle.create!(name: 'Costume', products: [pants],
@@ -683,7 +1003,7 @@ parent association.
 Note that Mongoid currently supports polymorphism only in one direction - from
 the child to the parent. For example, polymorphism cannot be used to specify
 that a bundle may contain other bundles or products:
-  
+
 .. code-block:: ruby
 
   class Bundle
@@ -697,10 +1017,11 @@ that a bundle may contain other bundles or products:
 
 
 Cascading Callbacks
-*******************
+-------------------
 
-If you want the embedded document callbacks to fire when calling a persistence operation on
-its parent, you will need to provide the cascade callbacks option to the association.
+If you want the embedded document callbacks to fire when calling a persistence
+operation on its parent, you will need to provide the cascade callbacks option
+to the association.
 
 .. code-block:: ruby
 
@@ -712,19 +1033,25 @@ its parent, you will need to provide the cascade callbacks option to the associa
 
   band.save # Fires all save callbacks on the band, albums, and label.
 
+
+.. _dependent-behavior:
+
 Dependent Behavior
-******************
+------------------
 
 You can provide dependent options to referenced associations to instruct Mongoid
 how to handle situations where one side of the association is deleted, or is attempted
 to be deleted. The options are as follows:
 
-- ``:delete``: Delete the child document without running any of the model callbacks.
-- ``:destroy``: Destroy the child document and run all of the model callbacks.
-- ``:nullify``: Orphan the child document.
-- ``:restrict``: Raise an error if the child is not empty.
+- ``:delete_all``: Delete the child document(s) without running any of the model callbacks.
+- ``:destroy``: Destroy the child document(s) and run all of the model callbacks.
+- ``:nullify``: Set the foreign key field of the child document to nil. The child may become orphaned if it is ordinarily only referenced via the parent.
+- ``:restrict_with_exception``: ``raise`` an error if the child is not empty.
+- ``:restrict_with_error``: Cancel operation and return false if the child is not empty.
 
-The default behavior of each association when no dependent option is provided is to nullify.
+If no ``:dependent`` option is provided, deleting the parent record leaves the child record unmodified 
+(in other words, the child record continues to reference the now deleted parent record via the foreign key field). 
+The child may become orphaned if it is ordinarily only referenced via the parent.
 
 .. code-block:: ruby
 
@@ -733,25 +1060,25 @@ The default behavior of each association when no dependent option is provided is
      has_many :albums, dependent: :delete_all
      belongs_to :label, dependent: :nullify
    end
-  
+
    class Album
      include Mongoid::Document
      belongs_to :band
    end
-  
+
    class Label
      include Mongoid::Document
-     has_many :bands, dependent: :restrict
+     has_many :bands, dependent: :restrict_with_exception
    end
-  
+
    label = Label.first
    label.bands.push(Band.first)
    label.delete # Raises an error since bands is not empty.
-  
+
    Band.first.delete # Will delete all associated albums.
 
 Autosaving
-**********
+----------
 
 One core difference between Mongoid and Active Record from a behavior standpoint
 is that Mongoid does not automatically save associated documents for
@@ -770,13 +1097,13 @@ Note that autosave functionality will automatically be added to an association w
      include Mongoid::Document
      has_many :albums, autosave: true
    end
- 
+
    band = Band.first
    band.albums.build(name: "101")
    band.save # Will save the album as well.
 
 Existence Predicates
-********************
+--------------------
 
 All associations have existence predicates on them in the form of ``name?`` and ``has_name?``
 to check if the association is blank.
@@ -788,14 +1115,14 @@ to check if the association is blank.
      embeds_one :label
      embeds_many :albums
    end
- 
+
    band.label?
    band.has_label?
    band.albums?
    band.has_albums?
 
 Autobuilding
-************
+------------
 
 One to one associations (``embeds_one``, ``has_one``) have an autobuild option which tells
 Mongoid to instantiate a new document when the association is accessed and it is ``nil``.
@@ -807,30 +1134,65 @@ Mongoid to instantiate a new document when the association is accessed and it is
      embeds_one :label, autobuild: true
      has_one :producer, autobuild: true
    end
-  
+
    band = Band.new
    band.label # Returns a new empty label.
    band.producer # Returns a new empty producer.
 
 Touching
-********
+--------
 
-Any ``belongs_to`` association, no matter where it hangs off from, can take an optional ``:touch``
-option which will call the touch method on it and any parent associations with the option defined
-when the base document calls ``#touch``.
+Any ``belongs_to`` association can take an optional ``:touch`` option which
+will cause the parent document be touched whenever the child document is
+touched:
 
 .. code-block:: ruby
 
-   class Band
-     include Mongoid::Document
-     belongs_to :label, touch: true
-   end
+  class Band
+    include Mongoid::Document
+    belongs_to :label, touch: true
+  end
+
+  band = Band.first
+  band.touch # Calls touch on the parent label.
+
+``:touch`` can also take a string or symbol argument specifying a field to
+be touched on the parent association in addition to updated_at:
+
+.. code-block:: ruby
+
+  class Label
+    include Mongoid::Document
+    include Mongoid::Timestamps
+    field :bands_updated_at, type: Time
+    has_many :bands
+  end
+
+  class Band
+    include Mongoid::Document
+    belongs_to :label, touch: :bands_updated_at
+  end
   
-   band = Band.first
-   band.touch # Calls touch on the parent label.
+  label = Label.create!
+  band = Band.create!(label: label)
+
+  band.touch # Updates updated_at and bands_updated_at on the label.
+
+When an embedded document is touched, its parents are recursively touched
+through the composition root (because all of the parents are necessarily saved
+when the embedded document is saved). The ``:touch`` attribute therefore is
+unnecessary on ``embedded_in`` associations.
+
+Mongoid currently `does not support specifying an additional field to be
+touched on an embedded_in association <https://jira.mongodb.org/browse/MONGOID-5014>`_.
+
+``:touch`` should not be set to ``false`` on an ``embedded_in`` association,
+since composition hierarchy is always updated upon a touch of an embedded
+document. This is currently not enforced but enforcement is `intended in the
+future <https://jira.mongodb.org/browse/MONGOID-5016>`_.
 
 The counter_cache Option
-************************
+------------------------
 
 As with ActiveRecord, the ``:counter_cache`` option can be used on an association
 to make finding the number of belonging objects more efficient. Also similar
@@ -852,8 +1214,52 @@ For example:
     has_many :orders
   end
 
-Association metadata
---------------------
+Association Proxies
+-------------------
+
+Associations employ transparent proxies to the target objects. This can
+cause surprising behavior in some situations.
+
+The method visibility may be lost when methods on association targets are
+accessed, depending on the association:
+
+.. code-block:: ruby
+
+  class Order
+    include Mongoid::Document
+    belongs_to :customer
+    
+    private
+    
+    def internal_status
+      'new'
+    end
+  end
+
+  class Customer
+    include Mongoid::Document
+    has_many :orders
+    
+    private
+    
+    def internal_id
+      42
+    end
+  end
+  
+  order = Order.new
+  customer = Customer.create!(orders: [order])
+  
+  # has_many does not permit calling private methods on the target
+  customer.orders.first.internal_status
+  # NoMethodError (private method `internal_status' called for #<Order:0x000055af2ec46c50>)
+  
+  # belongs_to permits calling private methods on the target
+  order.customer.internal_id
+  # => 42
+
+Association Metadata
+====================
 
 All associations in Mongoid contain metadata that holds information about the association in
 question, and is a valuable tool for third party developers to use to extend Mongoid.
@@ -865,13 +1271,13 @@ You can access the association metadata of the association in a few different wa
    # Get the metadata for a named association from the class or document.
    Model.reflect_on_association(:association_name)
    model.reflect_on_association(:association_name)
- 
+
    # Get the metadata with a specific association itself on a specific
    # document.
    model.associations[:association_name]
 
 Attributes
-**********
+----------
 
 All associations contain a ``_target``, which is the proxied document or documents, a ``_base``
 which is the document the association hangs off, and ``_association`` which provides information
@@ -883,14 +1289,14 @@ about the association.
      include Mongoid::Document
      embeds_many :addresses
    end
-   
+
    person.addresses = [ address ]
    person.addresses._target # returns [ address ]
    person.addresses._base # returns person
    person.addresses._association # returns the association metadata
 
 The Association Object
-**********************
+----------------------
 
 The association object itself contains more information than one might know what to do
 with, and is useful for developers of extensions to Mongoid.
@@ -978,104 +1384,10 @@ with, and is useful for developers of extensions to Mongoid.
      - Returns whether the association has an associated validation.
 
 
-Querying Associations
----------------------
-
-Mongoid supports several forms of efficient querying of documents based on
-associations.
-
-
-Embedded Associations
-*********************
-
-Given the following models:
-
-.. code-block:: ruby
-
-  class Band
-    include Mongoid::Document
-    embeds_many :tours
-    embeds_many :awards
-    field :name, type: String
-  end
-  
-  class Tour
-    include Mongoid::Document
-    embedded_in :band
-    field :year, type: Integer
-  end
-  
-  class Award
-    include Mongoid::Document
-    embedded_in :band
-    field :name, type: String
-  end
-
-Mongoid allows retrieving bands whose tours have certain attributes via the
-dot notation, as follows:
-
-.. code-block:: ruby
-
-  # Get all bands that have toured since 2000
-  Band.where('tours.year' => {'$gte' => 2000})
-
-Mongoid also can retrieve embedded documents only, without retrieving top-level
-documents, using projection:
-
-.. code-block:: ruby
-
-  # Get awards for bands that have toured since 2000
-  Band.where('tours.year' => {'$gte' => 2000}).pluck(:awards)
-
-
-Referenced Associations
-***********************
-
-If the associations are referenced rather than embedded, performing queries
-through them takes a bit more work. Given the following models modified from
-the previous example:
-
-.. code-block:: ruby
-
-  class Band
-    include Mongoid::Document
-    has_many :tours
-    has_many :awards
-    field :name, type: String
-  end
-  
-  class Tour
-    include Mongoid::Document
-    belongs_to :band
-    field :year, type: Integer
-  end
-  
-  class Award
-    include Mongoid::Document
-    belongs_to :band
-    field :name, type: String
-  end
-
-One could retrieve all bands that have toured since 2000 as follows:
-
-.. code-block:: ruby
-
-  band_ids = Tour.where(year: {'$gte' => 2000}).pluck(:band_id)
-  bands = Band.find(band_ids)
-
-The conditions on ``Tour`` can be arbitrarily complex, but they must all
-be on the same ``Tour`` document (or documents embedded in ``Tour``).
-
-To find awards for bands that have toured since 2000:
-
-.. code-block:: ruby
-
-  band_ids = Tour.where(year: {'$gte' => 2000}).pluck(:band_id)
-  awards = Award.where(band_id: {'$in' => band_ids})
-
+.. _aggregation-pipeline:
 
 Aggregation Pipeline
-********************
+====================
 
 Mongoid exposes MongoDB's aggregation pipeline for queries involving multiple
 referenced associations at the same time. Given the same setup as before with
@@ -1089,13 +1401,13 @@ referenced associations:
     has_many :awards
     field :name, type: String
   end
-  
+
   class Tour
     include Mongoid::Document
     belongs_to :band
     field :year, type: Integer
   end
-  
+
   class Award
     include Mongoid::Document
     belongs_to :band
@@ -1135,3 +1447,115 @@ the ``_id`` field which is then used to load full models. An alternative is
 to not perform such a projection and work with raw fields, which would eliminate
 having to send the list of document ids to Mongoid in the second query
 (which could be large).
+
+.. _aggregation-pipeline-builder-dsl:
+
+Builder DSL
+-----------
+
+Mongoid provides limited support for constructing the aggregation pipeline
+itself using a high-level DSL. The following aggregation pipeline operators
+are supported:
+
+- `$group <https://docs.mongodb.com/manual/reference/operator/aggregation/group/>`_
+- `$project <https://docs.mongodb.com/manual/reference/operator/aggregation/project/>`_
+- `$unwind <https://docs.mongodb.com/manual/reference/operator/aggregation/unwind/>`_
+
+To construct a pipeline, call the corresponding aggregation pipeine methods
+on a ``Criteria`` instance. Aggregation pipeline operations are added to the
+``pipeline`` attribute of the ``Criteria`` instance. To execute the pipeline,
+pass the ``pipeline`` attribute value to ``Collection#aggragegate`` method.
+
+For example, given the following models:
+
+.. code-block:: ruby
+
+  class Tour
+    include Mongoid::Document
+    
+    embeds_many :participants
+    
+    field :name, type: String
+    field :states, type: Array
+  end
+  
+  class Participant
+    include Mongoid::Document
+    
+    embedded_in :tour
+    
+    field :name, type: String
+  end
+
+We could find out which states a participant visited:
+
+.. code-block:: ruby
+
+  criteria = Tour.where('participants.name' => 'Serenity',).
+    unwind(:states).
+    group(_id: 'states', :states.add_to_set => '$states').
+    project(_id: 0, states: 1)
+  
+  pp criteria.pipeline
+  # => [{"$match"=>{"participants.name"=>"Serenity"}},
+  #     {"$unwind"=>"$states"},
+  #     {"$group"=>{"_id"=>"states", "states"=>{"$addToSet"=>"$states"}}},
+  #     {"$project"=>{"_id"=>0, "states"=>1}}]
+  
+  Tour.collection.aggregate(criteria.pipeline).to_a
+
+group
+`````
+
+The ``group`` method adds a `$group aggregation pipeline stage
+<https://docs.mongodb.com/manual/reference/operator/aggregation/group/>`_.
+
+The field expressions support Mongoid symbol-operator syntax:
+
+.. code-block:: ruby
+
+    criteria = Tour.all.group(_id: 'states', :states.add_to_set => '$states')
+    criteria.pipeline
+    # => [{"$group"=>{"_id"=>"states", "states"=>{"$addToSet"=>"$states"}}}]
+
+Alternatively, standard MongoDB aggregation pipeline syntax may be used:
+
+.. code-block:: ruby
+
+    criteria = Tour.all.group(_id: 'states', states: {'$addtoSet' => '$states'})
+
+project
+```````
+
+The ``project`` method adds a `$project aggregation pipeline stage
+<https://docs.mongodb.com/manual/reference/operator/aggregation/project/>`_.
+
+The argument should be a Hash specifying the projection:
+
+.. code-block:: ruby
+
+    criteria = Tour.all.project(_id: 0, states: 1)
+    criteria.pipeline
+    # => [{"$project"=>{"_id"=>0, "states"=>1}}]
+
+.. _unwind-dsl:
+
+unwind
+``````
+
+The ``unwind`` method adds an `$unwind aggregation pipeline stage
+<https://docs.mongodb.com/manual/reference/operator/aggregation/unwind/>`_.
+
+The argument can be a field name, specifyable as a symbol or a string, or
+a Hash or a ``BSON::Document`` instance:
+
+.. code-block:: ruby
+
+    criteria = Tour.all.unwind(:states)
+    criteria = Tour.all.unwind('states')
+    criteria.pipeline
+    # => [{"$unwind"=>"$states"}]
+    
+    criteria = Tour.all.unwind(path: '$states')
+    criteria.pipeline
+    # => [{"$unwind"=>{:path=>"$states"}}]

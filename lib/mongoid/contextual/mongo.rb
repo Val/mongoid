@@ -11,6 +11,7 @@ require "mongoid/association/eager_loadable"
 module Mongoid
   module Contextual
     class Mongo
+      extend Forwardable
       include Enumerable
       include Aggregable::Mongo
       include Atomic
@@ -70,7 +71,26 @@ module Mongoid
       # @since 3.0.0
       def count(options = {}, &block)
         return super(&block) if block_given?
-        try_cache(:count) { view.count(options) }
+        try_cache(:count) { view.count_documents(options) }
+      end
+
+      # Get the estimated number of documents matching the query.
+      #
+      # Unlike count, estimated_count does not take a block because it is not
+      # traditionally defined (with a block) on Enumarable like count is.
+      #
+      # @example Get the estimated number of matching documents.
+      #   context.estimated_count
+      #
+      # @param [ Hash ] options The options, such as maxTimeMS to be factored
+      #   into the count.
+      #
+      # @return [ Integer ] The number of matches.
+      def estimated_count(options = {})
+        unless self.criteria.selector.empty?
+          raise Mongoid::Errors::InvalidEstimatedCountCriteria.new(self.klass)
+        end
+        try_cache(:estimated_count) { view.estimated_document_count(options) }
       end
 
       # Delete all documents in the database that match the selector.
@@ -257,12 +277,12 @@ module Mongoid
         return documents.first if cached? && cache_loaded?
         try_cache(:first) do
           if sort = view.sort || ({ _id: 1 } unless opts[:id_sort] == :none)
-            if raw_doc = view.sort(sort).limit(-1).first
+            if raw_doc = view.sort(sort).limit(1).first
               doc = Factory.from_db(klass, raw_doc, criteria)
               eager_load([doc]).first
             end
           else
-            if raw_doc = view.limit(-1).first
+            if raw_doc = view.limit(1).first
               doc = Factory.from_db(klass, raw_doc, criteria)
               eager_load([doc]).first
             end
@@ -349,7 +369,7 @@ module Mongoid
         apply_options
       end
 
-      delegate(:database_field_name, to: :@klass)
+      def_delegator :@klass, :database_field_name
 
       # Get the last document in the database for the criteria's selector.
       #
@@ -371,7 +391,7 @@ module Mongoid
       def last(opts = {})
         try_cache(:last) do
           with_inverse_sorting(opts) do
-            if raw_doc = view.limit(-1).first
+            if raw_doc = view.limit(1).first
               doc = Factory.from_db(klass, raw_doc, criteria)
               eager_load([doc]).first
             end

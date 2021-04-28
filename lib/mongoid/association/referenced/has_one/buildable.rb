@@ -35,6 +35,14 @@ module Mongoid
           private
 
           def clear_associated(object)
+            unless inverse
+              raise Errors::InverseNotFound.new(
+                  @owner_class,
+                  name,
+                  object.class,
+                  foreign_key,
+              )
+            end
             if object && (associated = object.send(inverse))
               associated.substitute(nil)
             end
@@ -46,7 +54,7 @@ module Mongoid
           end
 
           def execute_query(object, base)
-            query_criteria(object, base).limit(-1).first(id_sort: :none)
+            query_criteria(object, base).limit(1).first(id_sort: :none)
           end
 
           def with_polymorphic_criterion(criteria, base)

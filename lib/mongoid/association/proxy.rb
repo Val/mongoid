@@ -9,23 +9,38 @@ module Mongoid
     # This class is the superclass for all association proxy objects, and contains
     # common behavior for all of them.
     class Proxy
+      extend Forwardable
+
       alias :extend_proxy :extend
 
       # We undefine most methods to get them sent through to the target.
       instance_methods.each do |method|
         undef_method(method) unless
-          method =~ /^(__.*|send|object_id|equal\?|respond_to\?|tap|public_send|extend_proxy|extend_proxies)$/
+          method =~ /\A(?:__.*|send|object_id|equal\?|respond_to\?|respond_to_missing\?|tap|public_send|extend_proxy|extend_proxies)\z/
       end
 
       include Threaded::Lifecycle
       include Marshalable
 
-      attr_accessor :_base, :_association, :_target
+      # Model instance for the base of the association.
+      #
+      # For example, if a Post embeds_many Comments, _base is a particular
+      # instance of the Post model.
+      attr_accessor :_base
+
+      attr_accessor :_association
+
+      # Model instance for one to one associations, or array of model instances
+      # for one to many associations, for the target of the association.
+      #
+      # For example, if a Post embeds_many Comments, _target is an array of
+      # Comment models embedded in a particular Post.
+      attr_accessor :_target
 
       # Backwards compatibility with Mongoid beta releases.
-      delegate :foreign_key, :inverse_foreign_key, to: :_association
-      delegate :bind_one, :unbind_one, to: :binding
-      delegate :collection_name, to: :_base
+      def_delegators :_association, :foreign_key, :inverse_foreign_key
+      def_delegators :binding, :bind_one, :unbind_one
+      def_delegator :_base, :collection_name
 
       # Convenience for setting the target and the association metadata properties since
       # all proxies will need to do this.
@@ -120,6 +135,11 @@ module Mongoid
       #
       def method_missing(name, *args, &block)
         _target.send(name, *args, &block)
+      end
+
+      # @api private
+      def respond_to_missing?(name, *args)
+        _target.respond_to?(name, *args)
       end
 
       # When the base document illegally references an embedded document this

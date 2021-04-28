@@ -322,7 +322,7 @@ describe Mongoid::Fields do
       end
 
       it "converts to Mongoid::Boolean" do
-        expect(klass.field(:test, type: Boolean).type).to be(Mongoid::Boolean)
+        expect(klass.field(:test, type: Mongoid::Boolean).type).to be(Mongoid::Boolean)
       end
     end
 
@@ -404,7 +404,7 @@ describe Mongoid::Fields do
       context "when the options are all standard" do
 
         before do
-          Band.field :acceptable, type: Boolean
+          Band.field :acceptable, type: Mongoid::Boolean
         end
 
         after do
@@ -419,7 +419,7 @@ describe Mongoid::Fields do
       context "when a custom option is provided" do
 
         before do
-          Band.field :acceptable, type: Boolean, custom: true
+          Band.field :acceptable, type: Mongoid::Boolean, custom: true
         end
 
         it "adds the field to the model" do
@@ -431,7 +431,9 @@ describe Mongoid::Fields do
     context "when the Symbol type is used" do
 
       before do
-        expect(Mongoid.logger).to receive(:warn)
+        Mongoid::Fields::Validators::Macro.class_eval do
+          @field_type_is_symbol_warned = false
+        end
       end
 
       after do
@@ -439,7 +441,28 @@ describe Mongoid::Fields do
       end
 
       it "warns that the BSON symbol type is deprecated" do
+        expect(Mongoid.logger).to receive(:warn)
+
         Band.field :should_warn, type: Symbol
+      end
+
+      it "warns on first use of Symbol type only" do
+        expect(Mongoid.logger).to receive(:warn).once
+
+        Band.field :should_warn, type: Symbol
+      end
+
+      context 'when using Symbol field type in multiple classes' do
+        after do
+          Truck.fields.delete("should_warn")
+        end
+
+        it "warns on first use of Symbol type only" do
+          expect(Mongoid.logger).to receive(:warn).once
+
+          Band.field :should_warn, type: Symbol
+          Truck.field :should_warn, type: Symbol
+        end
       end
     end
 
@@ -810,7 +833,8 @@ describe Mongoid::Fields do
       end
 
       it "does not return subclass defaults" do
-        expect(shape.pre_processed_defaults).to eq([ "_id", "x", "y", "_type" ])
+        expect(shape.pre_processed_defaults).to eq([ "_id", "x", "y" ])
+        expect(shape.post_processed_defaults).to eq([ "_type" ])
       end
     end
 
@@ -821,7 +845,8 @@ describe Mongoid::Fields do
       end
 
       it "has the parent and child defaults" do
-        expect(circle.pre_processed_defaults).to eq([ "_id", "x", "y", "_type", "radius" ])
+        expect(circle.pre_processed_defaults).to eq([ "_id", "x", "y", "radius" ])
+        expect(circle.post_processed_defaults).to eq([ "_type" ])
       end
     end
   end
@@ -965,7 +990,7 @@ describe Mongoid::Fields do
       end
 
       before do
-        Person.field :aliased, as: :alias, type: Boolean, overwrite: true
+        Person.field :aliased, as: :alias, type: Mongoid::Boolean, overwrite: true
       end
 
       it "uses the alias to write the attribute" do
@@ -1093,6 +1118,10 @@ describe Mongoid::Fields do
       it "does not return subclass fields" do
         expect(shape.fields.keys).to_not include("radius")
       end
+
+      it 'includes _type field' do
+        expect(shape.fields.keys).to include("_type")
+      end
     end
 
     context "on subclasses" do
@@ -1111,6 +1140,28 @@ describe Mongoid::Fields do
 
       it "includes the child fields" do
         expect(circle.fields.keys).to include("radius")
+      end
+
+      it 'includes _type field' do
+        expect(circle.fields.keys).to include("_type")
+      end
+    end
+
+    context "on new subclasses" do
+      it "all subclasses get the discriminator key" do
+        class DiscriminatorParent
+          include Mongoid::Document
+        end
+
+        class DiscriminatorChild1 < DiscriminatorParent
+        end
+
+        class DiscriminatorChild2 < DiscriminatorParent
+        end
+
+        expect(DiscriminatorParent.fields.keys).to include("_type")
+        expect(DiscriminatorChild1.fields.keys).to include("_type")
+        expect(DiscriminatorChild2.fields.keys).to include("_type")
       end
     end
   end
@@ -1326,6 +1377,24 @@ describe Mongoid::Fields do
 
       it "returns the proper predicate result" do
         expect(definition).to be_active
+      end
+    end
+  end
+
+  describe '_type field' do
+    context 'on parent class' do
+      let(:shape) { Shape.new }
+
+      it 'is correctly set' do
+        shape.attributes['_type'].should == 'Shape'
+      end
+    end
+
+    context 'on child class' do
+      let(:circle) { Circle.new }
+
+      it 'is correctly set' do
+        circle.attributes['_type'].should == 'Circle'
       end
     end
   end

@@ -165,35 +165,35 @@ describe Mongoid::Persistable::Savable do
 
       context "when performing modification and insert ops" do
 
-        let(:person) do
-          Person.create(title: "Blah")
+        let(:owner) do
+          Owner.create(name: "Blah")
         end
 
-        let!(:address) do
-          person.addresses.build(street: "Bond St")
+        let!(:birthday) do
+          owner.birthdays.build(title: "First")
         end
 
-        let!(:name) do
-          person.create_name(first_name: "Tony")
+        let!(:scribe) do
+          owner.create_scribe(name: "Josh")
         end
 
         let(:from_db) do
-          Person.find(person.id)
+          Owner.find(owner.id)
         end
 
         before do
-          person.title = "King"
-          name.first_name = "Ryan"
+          owner.name = "King"
+          scribe.name = "Tosh"
         end
 
         it "persists with proper set and push modifiers" do
-          expect(person.atomic_updates).to eq({
+          expect(owner.atomic_updates).to eq({
             "$set" => {
-              "title" => "King",
-              "name.first_name" => "Ryan"
+              "name" => "King",
+              "scribe.name" => "Tosh"
             },
             "$push"=> {
-              "addresses" => { '$each' => [ { "_id" => address.id, "street" => "Bond St" } ] }
+              "birthdays" => { '$each' => [ { "_id" => birthday.id, "title" => "First" } ] }
             }
           })
         end
@@ -201,15 +201,15 @@ describe Mongoid::Persistable::Savable do
         context "when saving the document" do
 
           it "saves the root document" do
-            expect(person.title).to eq("King")
+            expect(owner.name).to eq("King")
           end
 
           it "saves embedded many relations" do
-            expect(person.addresses.first.street).to eq("Bond St")
+            expect(owner.birthdays.first.title).to eq("First")
           end
 
           it "saves embedded one relations" do
-            expect(person.name.first_name).to eq("Ryan")
+            expect(owner.scribe.name).to eq("Tosh")
           end
         end
       end
@@ -255,6 +255,162 @@ describe Mongoid::Persistable::Savable do
 
         it "saves modifications to deeply embedded docs" do
           expect(from_db.addresses[0].locations.first.name).to eq('Work')
+        end
+      end
+
+      context 'when adding documents to embedded associations on multiple levels' do
+        let!(:truck) { Truck.create! }
+        let!(:crate) { truck.crates.create!(volume: 0.4) }
+
+        it 'persists the new documents' do
+          expect(truck.crates.size).to eq 1
+          expect(truck.crates[0].volume).to eq 0.4
+          expect(truck.crates[0].toys.size).to eq 0
+
+          truck.crates.first.toys.build(name: "Teddy bear")
+          truck.crates.build(volume: 0.8)
+
+          # The following is equivalent to the two lines above:
+          #
+          # truck.crates_attributes = {
+          #   '0' => {
+          #     "toys_attributes" => {
+          #       "0" => {
+          #         "name" => "Teddy bear"
+          #       }
+          #     },
+          #     "id" => crate.id.to_s
+          #   },
+          #   "1" => {
+          #     "volume" => 0.8
+          #   }
+          # }
+
+          expect(truck.crates.size).to eq 2
+          expect(truck.crates[0].volume).to eq 0.4
+          expect(truck.crates[0].toys.size).to eq 1
+          expect(truck.crates[0].toys[0].name).to eq "Teddy bear"
+          expect(truck.crates[1].volume).to eq 0.8
+          expect(truck.crates[1].toys.size).to eq 0
+
+          # TODO: MONGOID-5026: combine the updates so that there are
+          # no conflicts.
+          #expect(truck.atomic_updates[:conflicts]).to eq nil
+
+          expect { truck.save! }.not_to raise_error
+
+          _truck = Truck.find(truck.id)
+          expect(_truck.crates.size).to eq 2
+          expect(_truck.crates[0].volume).to eq 0.4
+          expect(_truck.crates[0].toys.size).to eq 1
+          expect(_truck.crates[0].toys[0].name).to eq "Teddy bear"
+          expect(_truck.crates[1].volume).to eq 0.8
+          expect(_truck.crates[1].toys.size).to eq 0
+        end
+      end
+
+      context 'when adding documents to embedded association and updating parent fields' do
+        let!(:truck) { Truck.create! }
+        let!(:crate) { truck.crates.create!(volume: 0.4) }
+
+        it 'performs all writes' do
+          truck.crates.build(volume: 1)
+          truck.crates.first.volume = 2
+
+          truck.save!
+
+          _truck = Truck.find(truck.id)
+          _truck.crates.length.should == 2
+          _truck.crates.first.volume.should == 2
+          _truck.crates.last.volume.should == 1
+        end
+      end
+
+      context 'when adding documents to nested embedded association and updating first association fields' do
+        let!(:truck) { Truck.create! }
+        let!(:seat) { truck.seats.create!(rating: 1) }
+
+        it 'performs all writes' do
+          truck.seats.first.armrests.build(side: 'left')
+          truck.seats.first.rating = 2
+
+          truck.save!
+
+          _truck = Truck.find(truck.id)
+          _truck.seats.length.should == 1
+          _truck.seats.first.armrests.length.should == 1
+          _truck.seats.first.armrests.first.side.should == 'left'
+        end
+      end
+
+      context 'when adding documents to nested embedded association and adding another top level association' do
+        let!(:truck) { Truck.create! }
+        let!(:crate) { truck.crates.create!(volume: 1) }
+
+        it 'performs all writes' do
+          truck.crates.first.toys.build(name: 'Bear')
+          truck.crates.build
+
+          truck.save!
+
+          _truck = Truck.find(truck.id)
+          _truck.crates.length.should == 2
+          _truck.crates.first.toys.length.should == 1
+          _truck.crates.first.toys.first.name.should == 'Bear'
+          _truck.crates.last.toys.length.should == 0
+        end
+
+        context 'when also updating first embedded top level association' do
+          it 'performs all writes' do
+            truck.crates.first.volume = 2
+            truck.crates.first.toys.build(name: 'Bear')
+            truck.crates.build
+
+            truck.save!
+
+            _truck = Truck.find(truck.id)
+            _truck.crates.length.should == 2
+            _truck.crates.first.toys.length.should == 1
+            _truck.crates.first.toys.first.name.should == 'Bear'
+            _truck.crates.last.toys.length.should == 0
+          end
+        end
+      end
+
+      context 'when adding documents to embedded associations with cascaded callbacks on update' do
+        let!(:truck) { Truck.create! }
+        let!(:seat) { truck.seats.create!(rating: 1) }
+
+        it 'persists the new documents' do
+          expect(truck.seats.size).to eq 1
+          expect(truck.seats[0].rating).to eq 1
+
+          truck.seats.build
+
+          expect { truck.save! }.not_to raise_error
+
+          _truck = Truck.find(truck.id)
+          expect(_truck.seats.size).to eq 2
+          expect(_truck.seats[0].rating).to eq 1
+          expect(_truck.seats[1].rating).to eq 100
+        end
+
+        context 'when embedded association embeds another association' do
+          it 'persists the new documents' do
+            expect(truck.seats.size).to eq 1
+            expect(truck.seats[0].rating).to eq 1
+
+            truck.seats.first.armrests.build
+            truck.seats.build
+
+            expect { truck.save! }.not_to raise_error
+
+            _truck = Truck.find(truck.id)
+            expect(_truck.seats.size).to eq 2
+            expect(_truck.seats[0].rating).to eq 2
+            expect(_truck.seats[0].armrests.length).to eq 1
+            expect(_truck.seats[1].rating).to eq 100
+          end
         end
       end
 

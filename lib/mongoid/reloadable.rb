@@ -21,6 +21,11 @@ module Mongoid
     #
     # @since 1.0.0
     def reload
+      if @atomic_selector
+        # Clear atomic_selector cache for sharded clusters. MONGOID-5076
+        remove_instance_variable('@atomic_selector')
+      end
+
       reloaded = _reload
       if Mongoid.raise_not_found_error && reloaded.empty?
         raise Errors::DocumentNotFound.new(self.class, _id, _id)
@@ -60,7 +65,7 @@ module Mongoid
     #
     # @since 2.3.2
     def reload_root_document
-      {}.merge(collection.find({ _id: _id }, session: _session).read(mode: :primary).first || {})
+      {}.merge(collection.find(atomic_selector, session: _session).read(mode: :primary).first || {})
     end
 
     # Reload the embedded document.
@@ -73,7 +78,7 @@ module Mongoid
     # @since 2.3.2
     def reload_embedded_document
       extract_embedded_attributes({}.merge(
-        collection(_root).find(_id: _root._id).read(mode: :primary).first
+        collection(_root).find(_root.atomic_selector).read(mode: :primary).first
       ))
     end
 

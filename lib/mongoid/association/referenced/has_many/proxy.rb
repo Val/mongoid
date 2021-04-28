@@ -9,9 +9,10 @@ module Mongoid
         # This class defines the behavior for all associations that are a
         # one-to-many between documents in different collections.
         class Proxy < Association::Many
+          extend Forwardable
 
-          delegate :count, to: :criteria
-          delegate :first, :in_memory, :last, :reset, :uniq, to: :_target
+          def_delegator :criteria, :count
+          def_delegators :_target, :first, :in_memory, :last, :reset, :uniq
 
           # Appends a document or array of documents to the association. Will set
           # the parent and update the index in the process.
@@ -89,7 +90,7 @@ module Mongoid
 
           # Delete the document from the association. This will set the foreign key
           # on the document to nil. If the dependent options on the association are
-          # :delete or :destroy the appropriate removal will occur.
+          # :delete_all or :destroy the appropriate removal will occur.
           #
           # @example Delete the document.
           #   person.posts.delete(post)
@@ -169,6 +170,13 @@ module Mongoid
 
           # Determine if any documents in this association exist in the database.
           #
+          # If the association contains documents but all of the documents
+          # exist only in the application, i.e. have not been persisted to the
+          # database, this method returns false.
+          #
+          # This method queries the database on each invocation even if the
+          # association is already loaded into memory.
+          #
           # @example Are there persisted documents?
           #   person.posts.exists?
           #
@@ -212,7 +220,7 @@ module Mongoid
           #
           # @since 2.0.0.beta.1
           def initialize(base, target, association)
-            enum = HasMany::Targets::Enumerable.new(target, base, association)
+            enum = HasMany::Enumerable.new(target, base, association)
             init(base, enum, association) do
               raise_mixed if klass.embedded? && !klass.cyclic?
             end
@@ -359,7 +367,7 @@ module Mongoid
             document.persisted? &&
                 document._association &&
                 document.respond_to?(document._association.foreign_key) &&
-                document.__send__(document._association.foreign_key) == _base.id
+                document.__send__(document._association.foreign_key) == _base._id
           end
 
           # Instantiate the binding associated with this association.

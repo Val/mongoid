@@ -47,7 +47,7 @@ module Mongoid
       #
       # @since 4.0.0
       def atomic_deletes
-        { atomic_delete_modifier => { atomic_path => _index ? { "_id" => id } : true }}
+        { atomic_delete_modifier => { atomic_path => _index ? { "_id" => _id } : true }}
       end
 
       # Delete the embedded document.
@@ -117,7 +117,6 @@ module Mongoid
       #
       # @since 4.0.0
       def prepare_delete
-        return false unless catch(:abort) { apply_delete_dependencies! }
         yield(self)
         freeze
         self.destroyed = true
@@ -141,7 +140,7 @@ module Mongoid
         #
         # @since 1.0.0
         def delete_all(conditions = {})
-          selector = hereditary? ? conditions.merge(_type: name) : conditions
+          selector = hereditary? ? conditions.merge(discriminator_key.to_sym => discriminator_value) : conditions
           where(selector).delete
         end
       end

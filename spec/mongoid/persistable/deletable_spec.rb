@@ -173,6 +173,172 @@ describe Mongoid::Persistable::Deletable do
         end
       end
     end
+
+    context "when deleting all documents with a custom discriminator key" do
+      before do
+        Canvas.discriminator_key = "dkey"
+      end
+
+      after do
+        Canvas.discriminator_key = nil
+      end
+
+      let!(:firefox) do
+        Firefox.create(name: "firefox")
+      end
+
+      let!(:firefox2) do
+        Firefox.create(name: "firefox 2")
+      end
+
+      let!(:browser) do
+        Browser.create(name: "browser")
+      end
+
+      let!(:canvas) do
+        Canvas.create(name: "canvas")
+      end
+
+      before do
+        Firefox.delete_all
+      end
+
+      it "deletes from the parent class collection" do
+        expect(Canvas.count).to eq(2)
+      end
+
+      it "returns correct counts for child classes" do
+        expect(Firefox.count).to eq(0)
+      end
+
+      it "returns correct counts for root subclasses" do
+        expect(Browser.count).to eq(1)
+      end
+    end
+
+    context "when deleting all documents with a custom discriminator value" do
+      before do
+        Canvas.discriminator_key = "dkey"
+        Firefox.discriminator_value = "dvalue"
+      end
+
+      after do
+        Canvas.discriminator_key = nil
+        Firefox.discriminator_value = nil
+      end
+
+      let!(:firefox) do
+        Firefox.create(name: "firefox")
+      end
+
+      let!(:firefox2) do
+        Firefox.create(name: "firefox 2")
+      end
+
+      let!(:browser) do
+        Browser.create(name: "browser")
+      end
+
+      let!(:canvas) do
+        Canvas.create(name: "canvas")
+      end
+
+      before do
+        Firefox.delete_all
+      end
+
+      it "deletes from the parent class collection" do
+        expect(Canvas.count).to eq(2)
+      end
+
+      it "returns correct counts for child classes" do
+        expect(Firefox.count).to eq(0)
+      end
+
+      it "returns correct counts for root subclasses" do
+        expect(Browser.count).to eq(1)
+      end
+    end
+
+    context 'when there are dependent documents' do
+      context 'has_one' do
+
+        context 'dependent: :destroy' do
+          let!(:parent) do
+            Hole.create!(bolt: Bolt.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Bolt.count.should == 1
+            parent.delete
+            Bolt.count.should == 1
+          end
+        end
+
+        context 'dependent: :delete_all' do
+          let!(:parent) do
+            Hole.create!(threadlocker: Threadlocker.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Threadlocker.count.should == 1
+            parent.delete
+            Threadlocker.count.should == 1
+          end
+        end
+
+        context 'dependent: :restrict_with_exception' do
+          let!(:parent) do
+            Hole.create!(sealer: Sealer.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Sealer.count.should == 1
+            parent.delete
+            Sealer.count.should == 1
+          end
+        end
+      end
+
+      context 'has_many' do
+
+        context 'dependent: :destroy' do
+          let!(:parent) do
+            Hole.create!(nuts: [Nut.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Nut.count.should == 1
+            parent.delete
+            Nut.count.should == 1
+          end
+        end
+
+        context 'dependent: :delete_all' do
+          let!(:parent) do
+            Hole.create!(washers: [Washer.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Washer.count.should == 1
+            parent.delete
+            Washer.count.should == 1
+          end
+        end
+
+        context 'dependent: :restrict_with_exception' do
+          let!(:parent) do
+            Hole.create!(spacers: [Spacer.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Spacer.count.should == 1
+            parent.delete
+            Spacer.count.should == 1
+          end
+        end
+      end
+    end
   end
 
   describe "#delete_all" do
@@ -248,6 +414,86 @@ describe Mongoid::Persistable::Deletable do
 
         it "returns 0" do
           expect(deleted).to eq(0)
+        end
+      end
+    end
+
+    context 'when there are dependent documents' do
+      context 'has_one' do
+
+        context 'dependent: :destroy' do
+          let!(:parent) do
+            Hole.create!(bolt: Bolt.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Bolt.count.should == 1
+            Hole.delete_all
+            Bolt.count.should == 1
+          end
+        end
+
+        context 'dependent: :delete_all' do
+          let!(:parent) do
+            Hole.create!(threadlocker: Threadlocker.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Threadlocker.count.should == 1
+            Hole.delete_all
+            Threadlocker.count.should == 1
+          end
+        end
+
+        context 'dependent: :restrict_with_exception' do
+          let!(:parent) do
+            Hole.create!(sealer: Sealer.create!)
+          end
+
+          it 'does not destroy dependent documents' do
+            Sealer.count.should == 1
+            Hole.delete_all
+            Sealer.count.should == 1
+          end
+        end
+      end
+
+      context 'has_many' do
+
+        context 'dependent: :destroy' do
+          let!(:parent) do
+            Hole.create!(nuts: [Nut.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Nut.count.should == 1
+            Hole.delete_all
+            Nut.count.should == 1
+          end
+        end
+
+        context 'dependent: :delete_all' do
+          let!(:parent) do
+            Hole.create!(washers: [Washer.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Washer.count.should == 1
+            Hole.delete_all
+            Washer.count.should == 1
+          end
+        end
+
+        context 'dependent: :restrict_with_exception' do
+          let!(:parent) do
+            Hole.create!(spacers: [Spacer.create!])
+          end
+
+          it 'does not destroy dependent documents' do
+            Spacer.count.should == 1
+            Hole.delete_all
+            Spacer.count.should == 1
+          end
         end
       end
     end

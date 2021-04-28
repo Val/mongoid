@@ -116,7 +116,50 @@ describe Mongoid::Document do
       end
 
       it "should clear descendants' cache" do
-        expect(Person._types).to include(descendant.to_s)
+        expect(Person._types).to include(descendant.discriminator_value)
+      end
+    end
+  end
+
+  describe "._mongoid_clear_types" do
+
+    context "when changing the discriminator_value" do
+
+      before do
+        Kangaroo._types
+        Kangaroo.discriminator_value = "dvalue"
+      end
+
+      after do
+        Kangaroo.discriminator_value = nil
+      end
+
+      it "has the correct _types" do
+        expect(Kangaroo._types).to eq(["dvalue"])
+      end
+    end
+
+    context "when changing the discriminator_value in child" do
+
+      before do
+        Shape._types
+        Circle.discriminator_value = "dvalue"
+      end
+
+      after do
+        Circle.discriminator_value = nil
+      end
+
+      it "has the correct _types" do
+        expect(Circle._types).to eq(["dvalue"])
+      end
+
+      it "has the new Circle discriminator value" do
+        expect(Shape._types).to include("dvalue")
+      end
+
+      it "doesn't have the old Circle discriminator value" do
+        expect(Shape._types).to_not include("Cirlce")
       end
     end
   end
@@ -881,27 +924,58 @@ describe Mongoid::Document do
       end
 
       context "when no embedded documents are present" do
+        context "when using the default discriminator key" do
+          let(:person) do
+            manager.becomes(Person)
+          end
 
-        let(:person) do
-          manager.becomes(Person)
+          it "copies attributes" do
+            expect(person.title).to eq('Sir')
+          end
+
+          it "keeps the same object id" do
+            expect(person.id).to eq(manager.id)
+          end
+
+          it "sets the class type" do
+            expect(person._type).to eq("Person")
+          end
+
+          it "raises an error when inappropriate class is provided" do
+            expect {
+              manager.becomes(String)
+            }.to raise_error(ArgumentError, /A class which includes Mongoid::Document is expected/)
+          end
         end
 
-        it "copies attributes" do
-          expect(person.title).to eq('Sir')
+        context "when using a custom discriminator key" do
+          before do
+            Person.discriminator_key = "dkey"
+          end
+
+          after do
+            Person.discriminator_key = nil
+          end
+
+          it "sets the class type with new discriminator key" do
+            expect(person.dkey).to eq("Person")
+          end
         end
 
-        it "keeps the same object id" do
-          expect(person.id).to eq(manager.id)
-        end
+        context "when using a custom discriminator key and discriminator value" do
+          before do
+            Person.discriminator_key = "dkey"
+            Person.discriminator_value = "dvalue"
+          end
 
-        it "sets the class type" do
-          expect(person._type).to eq("Person")
-        end
+          after do
+            Person.discriminator_key = nil
+            Person.discriminator_value = nil
+          end
 
-        it "raises an error when inappropriate class is provided" do
-          expect {
-            manager.becomes(String)
-          }.to raise_error(ArgumentError)
+          it "sets the class type with new discriminator key" do
+            expect(person.dkey).to eq("dvalue")
+          end
         end
       end
 

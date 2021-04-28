@@ -47,16 +47,18 @@ module Mongoid
           use(:__union__)
         end
 
-        # Reset the stratgies to nil, used after cloning.
+        # Clear the current strategy and negating flag, used after cloning.
         #
         # @example Reset the strategies.
         #   mergeable.reset_strategies!
         #
-        # @return [ nil ] nil.
+        # @return [ Criteria ] self.
         #
         # @since 1.0.0
         def reset_strategies!
-          self.strategy, self.negating = nil, nil
+          self.strategy = nil
+          self.negating = nil
+          self
         end
 
         private
@@ -134,32 +136,181 @@ module Mongoid
           with_strategy(:__intersect__, criterion, operator)
         end
 
-        # Adds the criterion to the existing selection.
+        # Adds $and/$or/$nor criteria to a copy of this selection.
+        #
+        # Each of the criteria can be a Hash of key/value pairs or MongoDB
+        # operators (keys beginning with $), or a Selectable object
+        # (which typically will be a Criteria instance).
         #
         # @api private
         #
         # @example Add the criterion.
         #   mergeable.__multi__([ 1, 2 ], "$in")
         #
-        # @param [ Hash ] criterion The criteria.
+        # @param [ Array<Hash | Criteria> ] criteria Multiple key/value pair
+        #   matches or Criteria objects.
         # @param [ String ] operator The MongoDB operator.
         #
         # @return [ Mergeable ] The new mergeable.
         #
         # @since 1.0.0
-        def __multi__(criterion, operator)
+        def __multi__(criteria, operator)
           clone.tap do |query|
             sel = query.selector
-            criterion.flatten.each do |expr|
+            criteria.flatten.each do |expr|
               next unless expr
-              criteria = sel[operator] || []
-              normalized = expr.inject({}) do |hash, (field, value)|
-                hash.merge!(field.__expr_part__(value.__expand_complex__))
-                hash
+              result_criteria = sel[operator] || []
+              if expr.is_a?(Selectable)
+                expr = expr.selector
               end
-              sel.store(operator, criteria.push(normalized))
+              normalized = _mongoid_expand_keys(expr)
+              sel.store(operator, result_criteria.push(normalized))
             end
           end
+        end
+
+        # Combines criteria into a MongoDB selector.
+        #
+        # Criteria is an array of criterions which will be flattened.
+        #
+        # Each criterion can be:
+        # - A hash
+        # - A Criteria instance
+        # - nil, in which case it is ignored
+        #
+        # @api private
+        private def _mongoid_add_top_level_operation(operator, criteria)
+          # Flatten the criteria. The idea is that predicates in MongoDB
+          # are always hashes and are never arrays. This method additionally
+          # allows Criteria instances as predicates.
+          # The flattening is existing Mongoid behavior but we could possibly
+          # get rid of it as applications can splat their predicates, or
+          # flatten if needed.
+          clone.tap do |query|
+            sel = query.selector
+            _mongoid_flatten_arrays(criteria).each do |criterion|
+              if criterion.is_a?(Selectable)
+                expr = _mongoid_expand_keys(criterion.selector)
+              else
+                expr = _mongoid_expand_keys(criterion)
+              end
+              if sel.empty?
+                sel.store(operator, [expr])
+              elsif sel.keys == [operator]
+                sel.store(operator, sel[operator] + [expr])
+              else
+                operands = [sel.dup] + [expr]
+                sel.clear
+                sel.store(operator, operands)
+              end
+            end
+          end
+        end
+
+        # Calling .flatten on an array which includes a Criteria instance
+        # evaluates the criteria, which we do not want. Hence this method
+        # explicitly only expands Array objects and Array subclasses.
+        private def _mongoid_flatten_arrays(array)
+          out = []
+          pending = array.dup
+          until pending.empty?
+            item = pending.shift
+            if item.nil?
+              # skip
+            elsif item.is_a?(Array)
+              pending += item
+            else
+              out << item
+            end
+          end
+          out
+        end
+
+        # Takes a criteria hash and expands Key objects into hashes containing
+        # MQL corresponding to said key objects. Also converts the input to
+        # BSON::Document to permit indifferent access.
+        #
+        # The argument must be a hash containing key-value pairs of the
+        # following forms:
+        # - {field_name: value}
+        # - {'field_name' => value}
+        # - {key_instance: value}
+        # - {:$operator => operator_value_expression}
+        # - {'$operator' => operator_value_expression}
+        #
+        # Ruby does not permit multiple symbol operators. For example,
+        # {:foo.gt => 1, :foo.gt => 2} is collapsed to {:foo.gt => 2} by the
+        # language. Therefore this method never has to deal with multiple
+        # identical operators.
+        #
+        # Similarly, this method should never need to expand a literal value
+        # and an operator at the same time.
+        #
+        # This method effectively converts symbol keys to string keys in
+        # the input +expr+, such that the downstream code can assume that
+        # conditions always contain string keys.
+        #
+        # @param [ Hash ] expr Criteria including Key instances.
+        #
+        # @return [ BSON::Document ] The expanded criteria.
+        private def _mongoid_expand_keys(expr)
+          unless expr.is_a?(Hash)
+            raise ArgumentError, 'Argument must be a Hash'
+          end
+
+          result = BSON::Document.new
+          expr.each do |field, value|
+            field.__expr_part__(value.__expand_complex__, negating?).each do |k, v|
+              if result[k]
+                if result[k].is_a?(Hash)
+                  # Existing value is an operator.
+                  # If new value is also an operator, ensure there are no
+                  # conflicts and add
+                  if v.is_a?(Hash)
+                    # The new value is also an operator.
+                    # If there are no conflicts, combine the hashes, otherwise
+                    # add new conditions to top level with $and.
+                    if (v.keys & result[k].keys).empty?
+                      result[k].update(v)
+                    else
+                      raise NotImplementedError, 'Ruby does not allow same symbol operator with different values'
+                      result['$and'] ||= []
+                      result['$and'] << {k => v}
+                    end
+                  else
+                    # The new value is a simple value.
+                    # If there isn't an $eq operator already in the query,
+                    # transform the new value into an $eq operator and add it
+                    # to the existing hash. Otherwise add the new condition
+                    # with $and to the top level.
+                    if result[k].key?('$eq')
+                      raise NotImplementedError, 'Ruby does not allow same symbol operator with different values'
+                      result['$and'] ||= []
+                      result['$and'] << {k => v}
+                    else
+                      result[k].update('$eq' => v)
+                    end
+                  end
+                else
+                  # Existing value is a simple value.
+                  # If we are adding an operator, and the operator is not $eq,
+                  # convert existing value into $eq and add the new operator
+                  # to the same hash. Otherwise add the new condition with $and
+                  # to the top level.
+                  if v.is_a?(Hash) && !v.key?('$eq')
+                    result[k] = {'$eq' => result[k]}.update(v)
+                  else
+                    raise NotImplementedError, 'Ruby does not allow same symbol operator with different values'
+                    result['$and'] ||= []
+                    result['$and'] << {k => v}
+                  end
+                end
+              else
+                result[k] = v
+              end
+            end
+          end
+          result
         end
 
         # Adds the criterion to the existing selection.
@@ -169,13 +320,16 @@ module Mongoid
         # @example Add the criterion.
         #   mergeable.__override__([ 1, 2 ], "$in")
         #
-        # @param [ Hash ] criterion The criteria.
+        # @param [ Hash | Criteria ] criterion The criteria.
         # @param [ String ] operator The MongoDB operator.
         #
         # @return [ Mergeable ] The new mergeable.
         #
         # @since 1.0.0
         def __override__(criterion, operator)
+          if criterion.is_a?(Selectable)
+            criterion = criterion.selector
+          end
           selection(criterion) do |selector, field, value|
             expression = prepare(field, operator, value)
             existing = selector[field]
@@ -227,7 +381,7 @@ module Mongoid
         # @api private
         #
         # @example Add criterion with a strategy.
-        #   mergeable.with_strategy(:__union__, [ 1, 2, 3 ], "$in")
+        #   mergeable.with_strategy(:__union__, {field_name: [ 1, 2, 3 ]}, "$in")
         #
         # @param [ Symbol ] strategy The name of the strategy method.
         # @param [ Object ] criterion The criterion to add.

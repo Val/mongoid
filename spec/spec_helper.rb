@@ -3,7 +3,7 @@
 
 require 'lite_spec_helper'
 
-MODELS = File.join(File.dirname(__FILE__), "app/models")
+MODELS = File.join(File.dirname(__FILE__), "support/models")
 $LOAD_PATH.unshift(MODELS)
 
 require "action_controller"
@@ -29,10 +29,16 @@ def database_id_alt
   "mongoid_test_alt"
 end
 
+require 'mrss/cluster_config'
+require 'support/client_registry'
+require 'mrss/constraints'
+
+ClusterConfig = Mrss::ClusterConfig
+
 require 'support/authorization'
 require 'support/expectations'
+require 'support/helpers'
 require 'support/macros'
-require 'support/cluster_config'
 require 'support/constraints'
 
 # Give MongoDB servers time to start up in CI environments
@@ -76,39 +82,12 @@ CONFIG = {
   }
 }
 
-def non_legacy_server?
-  Mongoid::Clients.default.cluster.servers.first.features.write_command_enabled?
-end
-
-def testing_replica_set?
-  Mongoid::Clients.default.cluster.replica_set?
-end
-
-def collation_supported?
-  Mongoid::Clients.default.cluster.next_primary.features.collation_enabled?
-end
-alias :decimal128_supported? :collation_supported?
-
-def array_filters_supported?
-  Mongoid::Clients.default.cluster.next_primary.features.array_filters_enabled?
-end
-alias :sessions_supported? :array_filters_supported?
-
-def transactions_supported?
-  features = Mongoid::Clients.default.cluster.next_primary.features
-  features.respond_to?(:transactions_enabled?) && features.transactions_enabled?
-end
-
-def testing_transactions?
-  transactions_supported? && testing_replica_set?
-end
-
 # Set the database that the spec suite connects to.
 Mongoid.configure do |config|
   config.load_configuration(CONFIG)
 end
 
-# Autoload every model for the test suite that sits in spec/app/models.
+# Autoload every model for the test suite that sits in spec/support/models.
 Dir[ File.join(MODELS, "*.rb") ].sort.each do |file|
   name = File.basename(file, ".rb")
   autoload name.camelize.to_sym, name
@@ -137,21 +116,28 @@ end
 
 I18n.config.enforce_available_locales = false
 
+# The user must be created before any of the tests are loaded, until
+# https://jira.mongodb.org/browse/MONGOID-4827 is implemented.
+client = Mongo::Client.new(SpecConfig.instance.addresses, server_selection_timeout: 3.03)
+begin
+  # Create the root user administrator as the first user to be added to the
+  # database. This user will need to be authenticated in order to add any
+  # more users to any other databases.
+  client.database.users.create(MONGOID_ROOT_USER)
+rescue Mongo::Error::OperationFailure => e
+ensure
+  client.close
+end
+
 RSpec.configure do |config|
   config.raise_errors_for_deprecations!
+  config.include(Helpers)
   config.include(Mongoid::Expectations)
+  config.extend(Mrss::Constraints)
   config.extend(Constraints)
   config.extend(Mongoid::Macros)
 
   config.before(:suite) do
-    client = Mongo::Client.new(SpecConfig.instance.addresses, server_selection_timeout: 3.03)
-    begin
-      # Create the root user administrator as the first user to be added to the
-      # database. This user will need to be authenticated in order to add any
-      # more users to any other databases.
-      client.database.users.create(MONGOID_ROOT_USER)
-    rescue Exception => e
-    end
     Mongoid.purge!
   end
 

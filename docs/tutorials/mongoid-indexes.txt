@@ -1,19 +1,19 @@
 .. _mongoid-indexes:
 
-=======
+*******
 Indexes
-=======
+*******
 
 .. default-domain:: mongodb
 
 .. contents:: On this page
    :local:
    :backlinks: none
-   :depth: 1
+   :depth: 2
    :class: singlecol
 
 Specifying Indexes
-------------------
+==================
 
 You can define indexes on documents using the index macro. Provide the key for
 the index along with a direction. Additional options can be supplied in the
@@ -72,6 +72,10 @@ the collection is large and index creation may take a long time:
       index({ ssn: 1 }, { unique: true, background: true })
     end
 
+If the ``background_indexing`` :ref:`configuration option
+<configuration-options>` is true, the indexes are created in the background
+unless the ``background: false`` option is provided.
+
 *Deprecated:* When using MongoDB 2.6, you can drop the duplicate entries
 for unique indexes that are defined for a column that might
 already have duplicate values by specifying the ``drop_dups`` option:
@@ -120,7 +124,7 @@ This only works on the association macro that the foreign key is stored on:
     end
 
 Index Management Rake Tasks
----------------------------
+===========================
 
 When you want to create the indexes in the database, use the provided
 ``db:mongoid::create_indexes`` Rake task:

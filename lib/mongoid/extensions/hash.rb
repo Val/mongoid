@@ -48,25 +48,65 @@ module Mongoid
             value.each_pair do |_key, _value|
               value[_key] = (key == "$rename") ? _value.to_s : mongoize_for(key, klass, _key, _value)
             end
-            (consolidated[key] ||= {}).merge!(value)
+            consolidated[key] ||= {}
+            consolidated[key].update(value)
           else
-            (consolidated["$set"] ||= {}).merge!(key => mongoize_for(key, klass, key, value))
+            consolidated["$set"] ||= {}
+            consolidated["$set"].update(key => mongoize_for(key, klass, key, value))
           end
         end
         consolidated
       end
 
-      # Check if the hash is part of a blank association criteria.
+      # Checks whether conditions given in this hash are known to be
+      # unsatisfiable, i.e., querying with this hash will always return no
+      # documents.
       #
-      # @example Is the hash blank criteria?
-      #   {}.blank_criteria?
+      # This method only handles condition shapes that Mongoid itself uses when
+      # it builds association queries. It does not guarantee that a false
+      # return value means the condition can produce a non-empty document set -
+      # only that if the return value is true, the condition always produces
+      # an empty document set.
       #
-      # @return [ true, false ] If the hash is blank criteria.
+      # @example Unsatisfiable conditions
+      #   {'_id' => {'$in' => []}}._mongoid_unsatisfiable_criteria?
+      #   # => true
+      #
+      # @example Conditions which could be satisfiable
+      #   {'_id' => '123'}._mongoid_unsatisfiable_criteria?
+      #   # => false
+      #
+      # @example Conditions which are unsatisfiable that this method does not handle
+      #   {'foo' => {'$in' => []}}._mongoid_unsatisfiable_criteria?
+      #   # => false
+      #
+      # @return [ true | false ] Whether hash contains known unsatisfiable
+      #   conditions.
+      # @api private
+      def _mongoid_unsatisfiable_criteria?
+        unsatisfiable_criteria = { "_id" => { "$in" => [] }}
+        return true if self == unsatisfiable_criteria
+        return false unless length == 1 && keys == %w($and)
+        value = values.first
+        value.is_a?(Array) && value.any? do |sub_v|
+          sub_v.is_a?(Hash) && sub_v._mongoid_unsatisfiable_criteria?
+        end
+      end
+
+      # Checks whether conditions given in this hash are known to be
+      # unsatisfiable, i.e., querying with this hash will always return no
+      # documents.
+      #
+      # This method is deprecated. Mongoid now uses
+      # +_mongoid_unsatisfiable_criteria?+ internally; this method is retained
+      # for backwards compatibility only.
+      #
+      # @return [ true | false ] Whether hash contains known unsatisfiable
+      #   conditions.
       #
       # @since 3.1.0
-      def blank_criteria?
-        self == { "_id" => { "$in" => [] }}
-      end
+      # @deprecated
+      alias :blank_criteria? :_mongoid_unsatisfiable_criteria?
 
       # Deletes an id value from the hash.
       #
@@ -77,7 +117,7 @@ module Mongoid
       #
       # @since 3.0.2
       def delete_id
-        delete("_id") || delete("id") || delete(:id) || delete(:_id)
+        delete("_id") || delete(:_id) || delete("id") || delete(:id)
       end
 
       # Get the id attribute from this hash, whether it's prefixed with an
@@ -90,7 +130,7 @@ module Mongoid
       #
       # @since 2.3.2
       def extract_id
-        self["_id"] || self["id"] || self[:id] || self[:_id]
+        self["_id"] || self[:_id] || self["id"] || self[:id]
       end
 
       # Fetch a nested value via dot syntax.

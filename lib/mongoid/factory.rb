@@ -7,9 +7,17 @@ module Mongoid
   module Factory
     extend self
 
+    # @deprecated
     TYPE = "_type".freeze
 
     # Builds a new +Document+ from the supplied attributes.
+    #
+    # This method either instantiats klass or a descendant of klass if the attributes include
+    # klass' discriminator key.
+    #
+    # If the attributes contain the discriminator key (which is _type by default) and the
+    # discriminator value does not correspond to a descendant of klass then this method
+    # would create an instance of klass.
     #
     # @example Build the document.
     #   Mongoid::Factory.build(Person, { "name" => "Durran" })
@@ -20,9 +28,10 @@ module Mongoid
     # @return [ Document ] The instantiated document.
     def build(klass, attributes = nil)
       attributes ||= {}
-      type = attributes[TYPE] || attributes[TYPE.to_sym]
-      if type && klass._types.include?(type)
-        type.constantize.new(attributes)
+      dvalue = attributes[klass.discriminator_key] || attributes[klass.discriminator_key.to_sym]
+      type = klass.get_discriminator_mapping(dvalue)
+      if type
+        type.new(attributes)
       else
         klass.new(attributes)
       end
@@ -30,6 +39,10 @@ module Mongoid
 
     # Builds a new +Document+ from the supplied attributes loaded from the
     # database.
+    #
+    # If the attributes contain the discriminator key (which is _type by default) and the
+    # discriminator value does not correspond to a descendant of klass then this method
+    # raises an UnknownModel error.
     #
     # If a criteria object is given, it is used in two ways:
     # 1. If the criteria has a list of fields specified via #only,
@@ -54,7 +67,7 @@ module Mongoid
       if criteria
         selected_fields ||= criteria.options[:fields]
       end
-      type = (attributes || {})[TYPE]
+      type = (attributes || {})[klass.discriminator_key]
       if type.blank?
         obj = klass.instantiate(attributes, selected_fields)
         if criteria && criteria.association && criteria.parent_document
@@ -62,13 +75,17 @@ module Mongoid
         end
         obj
       else
-        camelized = type.camelize
+        constantized = klass.get_discriminator_mapping(type)
 
-        # Check if the class exists
-        begin
-          constantized = camelized.constantize
-        rescue NameError
-          raise Errors::UnknownModel.new(camelized, type)
+        unless constantized
+          camelized = type.camelize
+
+          # Check if the class exists
+          begin
+            constantized = camelized.constantize
+          rescue NameError
+            raise Errors::UnknownModel.new(camelized, type)
+          end
         end
 
         # Check if the class is a Document class

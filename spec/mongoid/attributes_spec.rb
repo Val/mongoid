@@ -96,6 +96,49 @@ describe Mongoid::Attributes do
             it "does not raise an error" do
               expect(from_db.map).to eq(map)
             end
+
+            context 'when only one of the hash fields is projected' do
+
+              let(:map) do
+                { 'dates' => { 'y' => { '2016' => 'Berlin', '2017' => 'Munich' } } }
+              end
+
+              let(:expected) do
+                { 'dates' => { 'y' => {
+                  '2016' => 'Berlin',
+                } } }
+              end
+
+              it 'retrieves only the projected fields' do
+                expect(from_db.map).to eq(expected)
+              end
+            end
+
+            context 'when several of the hash fields is projected' do
+
+              let(:map) do
+                { 'dates' => { 'y' => {
+                  '2016' => 'Berlin',
+                  '2017' => 'Munich',
+                  '2018' => 'Krakow',
+                } } }
+              end
+
+              let(:expected) do
+                { 'dates' => { 'y' => {
+                  '2016' => 'Berlin',
+                  '2018' => 'Krakow',
+                } } }
+              end
+
+              let(:from_db) do
+                Person.only('map.dates.y.2016', 'map.dates.y.2018').first
+              end
+
+              it 'retrieves only the projected fields' do
+                expect(from_db.map).to eq(expected)
+              end
+            end
           end
         end
 
@@ -245,6 +288,91 @@ describe Mongoid::Attributes do
         end
       end
 
+      context "when the field was not explicitly defined" do
+
+        context "when excluding with only and the field was not excluded" do
+
+          let(:from_db) do
+            Person.only(:_id).first
+          end
+
+          it "raises an error" do
+            expect {
+              from_db[:undefined_field]
+            }.to raise_error(ActiveModel::MissingAttributeError)
+          end
+        end
+
+        context "when excluding with without and the field was excluded" do
+
+          let(:from_db) do
+            Person.without(:title).first
+          end
+
+          it "raises an error" do
+            expect {
+              from_db[:title]
+            }.to raise_error(ActiveModel::MissingAttributeError)
+          end
+        end
+
+        context "when excluding with without and the field was not excluded" do
+
+          let(:from_db) do
+            Person.without(:title).first
+          end
+
+          it "returns nil" do
+            from_db[:undefined_field].should be nil
+          end
+        end
+      end
+
+      context 'when projecting with #only' do
+        let!(:person) do
+          Person.create(title: 'sir', name: { first_name: 'Jose', language: { name: 'es' } })
+        end
+
+        context 'when projecting an embedded association' do
+          let(:from_db) do
+            Person.only(:name).first
+          end
+
+          context 'when retrieving a field of the association using the dot notation' do
+
+            it 'retrieves the field' do
+              expect(from_db['name.first_name']).to eq 'Jose'
+            end
+          end
+
+          context 'when retrieving a field of a nested association using the dot notation' do
+            it 'retrieves the field' do
+              expect(from_db['name.language.name']).to eq 'es'
+            end
+          end
+        end
+
+        context 'when projecting a sub-association of an embedded association' do
+          let(:from_db) do
+            Person.only('name.language').first
+          end
+
+          context 'when retrieving a field under the projected sub-association' do
+            it 'retrieves the field' do
+              expect(from_db['name.language.name']).to eq 'es'
+            end
+          end
+
+          context 'when retrieving a non-projected field' do
+            it 'raises MissingAttributeError' do
+              expect do
+                from_db['name.first_name']
+              end.to raise_error(ActiveModel::MissingAttributeError)
+            end
+          end
+        end
+      end
+
       context "when the attribute does not exist" do
 
         before do
@@ -327,6 +455,67 @@ describe Mongoid::Attributes do
 
       it "returns the set value" do
         expect(terms).to eq(true)
+      end
+    end
+
+    context 'when the field is not explicitly defined' do
+      let(:bar) { Bar.new }
+
+      before do
+        bar['missing_field'] = 42
+      end
+
+      it 'writes the value into attributes' do
+        bar.attributes.should == {'_id' => bar.id, 'missing_field' => 42}
+      end
+
+      it 'makes the attribute accessible via []' do
+        bar['missing_field'].should == 42
+      end
+
+      context 'when writing fields on a document with projection' do
+
+        let!(:person) do
+          Person.create(title: "sir")
+        end
+
+        context "when excluding with only and the field was not excluded" do
+
+          let(:from_db) do
+            Person.only(:_id).first
+          end
+
+          it "raises an error" do
+            expect {
+              from_db[:undefined_field] = 'x'
+            }.to raise_error(ActiveModel::MissingAttributeError)
+          end
+        end
+
+        context "when excluding with without and the field was excluded" do
+
+          let(:from_db) do
+            Person.without(:title).first
+          end
+
+          it "raises an error" do
+            expect {
+              from_db[:title] = 'x'
+            }.to raise_error(ActiveModel::MissingAttributeError)
+          end
+        end
+
+        context "when excluding with without and the field was not excluded" do
+
+          let(:from_db) do
+            Person.without(:title).first
+          end
+
+          it "writes the value" do
+            from_db[:undefined_field] = 'x'
+            from_db[:undefined_field].should == 'x'
+          end
+        end
       end
     end
   end
@@ -893,6 +1082,50 @@ describe Mongoid::Attributes do
         expect(person.age_before_type_cast).to eq("old")
       end
     end
+
+    context 'when reading fields on a document with projection' do
+
+      let!(:person) do
+        Person.create(title: "sir")
+      end
+
+      context "when excluding with only and the field was not excluded" do
+
+        let(:from_db) do
+          Person.only(:_id).first
+        end
+
+        it "raises an error" do
+          expect {
+            from_db.read_attribute(:undefined_field)
+          }.to raise_error(ActiveModel::MissingAttributeError)
+        end
+      end
+
+      context "when excluding with without and the field was excluded" do
+
+        let(:from_db) do
+          Person.without(:title).first
+        end
+
+        it "raises an error" do
+          expect {
+            from_db.read_attribute(:title)
+          }.to raise_error(ActiveModel::MissingAttributeError)
+        end
+      end
+
+      context "when excluding with without and the field was not excluded" do
+
+        let(:from_db) do
+          Person.without(:title).first
+        end
+
+        it "returns nil" do
+          from_db.read_attribute(:undefined_field).should be nil
+        end
+      end
+    end
   end
 
   describe "#attribute_present?" do
@@ -1349,10 +1582,16 @@ describe Mongoid::Attributes do
     context "when attribute is a Hash" do
       let(:person) { Person.new map: { somekey: "somevalue" } }
 
-      it "raises an error when try to set an invalid value" do
-        expect {
+      it "raises an error when trying to set a value of invalid type - array" do
+        expect do
           person.map = []
-        }.to raise_error(Mongoid::Errors::InvalidValue)
+        end.to raise_error(Mongoid::Errors::InvalidValue, /Value of type Array cannot be written to a field of type Hash/)
+      end
+
+      it "raises an error when trying to set a value of invalid type - boolean" do
+        expect do
+          person.map = false
+        end.to raise_error(Mongoid::Errors::InvalidValue, /Value of type FalseClass cannot be written to a field of type Hash/)
       end
 
       it "can set a Hash value" do
@@ -1367,10 +1606,16 @@ describe Mongoid::Attributes do
         expect(person.aliases).to eq([ :alias_1 ])
       end
 
-      it "raises an error when try to set an invalid value" do
-        expect {
+      it "raises an error when trying to set a value of invalid type - hash" do
+        expect do
           person.aliases = {}
-        }.to raise_error(Mongoid::Errors::InvalidValue)
+        end.to raise_error(Mongoid::Errors::InvalidValue, /Value of type Hash cannot be written to a field of type Array/)
+      end
+
+      it "raises an error when trying to set a value of invalid type - boolean" do
+        expect do
+          person.aliases = false
+        end.to raise_error(Mongoid::Errors::InvalidValue, /Value of type FalseClass cannot be written to a field of type Array/)
       end
     end
 
@@ -1384,6 +1629,51 @@ describe Mongoid::Attributes do
       it "sets the value for the current locale" do
         dictionary.write_attribute(:description, 'foo')
         expect(dictionary.description).to eq('foo')
+      end
+    end
+
+    context 'when writing fields on a document with projection' do
+
+      let!(:person) do
+        Person.create(title: "sir")
+      end
+
+      context "when excluding with only and the field was not excluded" do
+
+        let(:from_db) do
+          Person.only(:_id).first
+        end
+
+        it "raises an error" do
+          expect {
+            from_db.write_attribute(:undefined_field, 'x')
+          }.to raise_error(ActiveModel::MissingAttributeError)
+        end
+      end
+
+      context "when excluding with without and the field was excluded" do
+
+        let(:from_db) do
+          Person.without(:title).first
+        end
+
+        it "raises an error" do
+          expect {
+            from_db.write_attribute(:title, 'x')
+          }.to raise_error(ActiveModel::MissingAttributeError)
+        end
+      end
+
+      context "when excluding with without and the field was not excluded" do
+
+        let(:from_db) do
+          Person.without(:title).first
+        end
+
+        it "writes the value" do
+          from_db.write_attribute(:undefined_field, 'x')
+          from_db.read_attribute(:undefined_field).should == 'x'
+        end
       end
     end
   end
@@ -1425,7 +1715,7 @@ describe Mongoid::Attributes do
   end
 
   describe "#typed_attributes"  do
-    
+
     let(:date_time) do
       DateTime.current
     end
@@ -1634,6 +1924,61 @@ describe Mongoid::Attributes do
               { "_id" => "test", "street" => "Test2" }
             )
           end
+        end
+      end
+    end
+  end
+
+  describe '#unalias_attribute' do
+    let(:shirt) { Shirt.new }
+    let(:id) { '1234' }
+
+    context 'when creating object' do
+      let(:shirt) { Shirt.new(id: id) }
+
+      it 'id and _id are not the same' do
+        expect(shirt.id).to eq(id)
+        expect(shirt._id).not_to eq(id)
+      end
+    end
+
+    context 'update' do
+      before do
+        shirt.update(id: id)
+      end
+
+      it 'updates id but not_id' do
+        expect(shirt.id).to eq(id)
+        expect(shirt._id).not_to eq(id)
+      end
+    end
+
+    context 'id=' do
+      before do
+        shirt.id = id
+      end
+
+      it 'sets id and not _id' do
+        expect(shirt.id).to eq(id)
+        expect(shirt._id).not_to eq(id)
+      end
+    end
+
+    context 'id?' do
+      context 'with null id' do
+        it 'returns false' do
+          expect(shirt.id?).to be false
+          expect(shirt._id?).to be true
+        end
+      end
+
+      context 'with id' do
+        before do
+          shirt.id = id
+        end
+
+        it 'returns true' do
+          expect(shirt.id?).to be true
         end
       end
     end

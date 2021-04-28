@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 # encoding: utf-8
 
-# -*- coding: utf-8 -*-
 require "spec_helper"
 
 require_relative './copyable_spec_models'
@@ -65,30 +64,58 @@ describe Mongoid::Copyable do
 
       context "when a document has fields from a legacy schema" do
 
-        let!(:actor) do
-          Actor.create(name: "test")
+        shared_examples 'behaves as expected' do
+          let!(:instance) do
+            cls.create(name: "test")
+          end
+
+          before do
+            legacy_fields = { "this_is_not_a_field" => 1, "this_legacy_field_is_nil" => nil }
+            cls.collection.find(_id: instance.id).update_one("$set" => legacy_fields)
+          end
+
+          let(:cloned) do
+            instance.reload.send(method)
+          end
+
+          it "sets the legacy attribute" do
+            expect(cloned.attributes['this_is_not_a_field']).to eq(1)
+          end
+
+          it "contains legacy attributes that are nil" do
+            expect(cloned.attributes.key?('this_legacy_field_is_nil')).to eq(true)
+          end
+
+          it "copies the known attributes" do
+            expect(cloned.name).to eq('test')
+          end
+
+          it 'calls constructor with explicitly declared attributes only' do
+            expect(cls).to receive(:new).with('name' => 'test').and_call_original
+            cloned
+          end
         end
 
-        before do
-          legacy_fields = { "this_is_not_a_field" => 1, "this_legacy_field_is_nil" => nil }
-          Actor.collection.find(_id: actor.id).update_one("$set" => legacy_fields)
+        context 'without Attributes::Dynamic' do
+          let(:cls) { CopyableSpec::Reg }
+
+          before do
+            cls.should_not include(Mongoid::Attributes::Dynamic)
+          end
+
+          include_examples 'behaves as expected'
         end
 
-        let(:cloned) do
-          actor.reload.send(method)
+        context 'with Attributes::Dynamic' do
+          let(:cls) { CopyableSpec::Dyn }
+
+          before do
+            cls.should include(Mongoid::Attributes::Dynamic)
+          end
+
+          include_examples 'behaves as expected'
         end
 
-        it "sets the legacy attribute" do
-          expect(cloned.attributes['this_is_not_a_field']).to eq(1)
-        end
-
-        it "contains legacy attributes that are nil" do
-          expect(cloned.attributes.key?('this_legacy_field_is_nil')).to eq(true)
-        end
-
-        it "copies the known attributes" do
-          expect(cloned.name).to eq('test')
-        end
       end
 
       context "when using store_as" do
@@ -195,7 +222,7 @@ describe Mongoid::Copyable do
           I18n.enforce_available_locales = false
           I18n.locale = 'pt_BR'
           person.addresses.type(ShipmentAddress).each { |address| address.shipping_name = "Título" }
-          person.save
+          person.save!
         end
 
         after do
@@ -328,6 +355,83 @@ describe Mongoid::Copyable do
 
           it "copies localized fields" do
             expect(copy.desc).to eq("description")
+          end
+
+          context "when saving the copy" do
+
+            let(:reloaded) do
+              copy.reload
+            end
+
+            before do
+              copy.save(validate: false)
+            end
+
+            it "persists the attributes" do
+              expect(reloaded.title).to eq("Sir")
+            end
+
+            it "persists the embeds many relation" do
+              expect(reloaded.addresses).to eq(person.addresses)
+            end
+
+            it "persists the embeds one relation" do
+              expect(reloaded.name).to eq(person.name)
+            end
+          end
+        end
+
+        context "when using a custom discriminator_key" do
+          before do
+            Person.discriminator_key = "dkey"
+          end
+
+          after do
+            Person.discriminator_key = nil
+          end
+
+          let(:copy) do
+            person.send(method)
+          end
+
+          before do
+            person[:versions] = [ { number: 1 } ]
+          end
+
+          it "copys embeds many documents" do
+            expect(copy.addresses).to eq(person.addresses)
+          end
+
+          it "copys deep embeds many documents" do
+            expect(copy.name.translations).to eq(person.name.translations)
+          end
+
+          it "sets the embedded many documents as new" do
+            expect(copy.addresses.first).to be_new_record
+          end
+
+          it "sets the deep embedded many documents as new" do
+            expect(copy.name.translations.first).to be_new_record
+          end
+
+          it "creates new embeds many instances" do
+            expect(copy.addresses).to_not equal(person.addresses)
+          end
+
+          it "creates new deep embeds many instances" do
+            expect(copy.name.translations).to_not equal(person.name.translations)
+          end
+
+          it "copys embeds one documents" do
+            expect(copy.name).to eq(person.name)
+          end
+
+          it "flags the embeds one documents as new" do
+            expect(copy.name).to be_new_record
+          end
+
+          it "creates a new embeds one instance" do
+            expect(copy.name).to_not equal(person.name)
           end
 
           context "when saving the copy" do
@@ -514,6 +618,81 @@ describe Mongoid::Copyable do
 
           it "persists the embeds one relation" do
             expect(reloaded.name).to eq(person.name)
+          end
+        end
+      end
+
+      context "when cloning a document with an embedded child class and a custom discriminator value" do
+
+        before do
+          ShipmentAddress.discriminator_value = "dvalue"
+        end
+
+        after do
+          ShipmentAddress.discriminator_value = nil
+        end
+
+        let!(:shipment_address) do
+          person.addresses.build({}, ShipmentAddress)
+        end
+
+        before do
+          person.save
+        end
+
+        let!(:from_db) do
+          Person.find(person.id)
+        end
+
+        let(:copy) do
+          from_db.send(method)
+        end
+
+        it "copys embeds many documents" do
+          expect(copy.addresses).to eq(person.addresses)
+        end
+      end
+
+      context 'when cloning a document with embedded child that uses inheritance' do
+        let(:original) do
+          CopyableSpec::A.new(influencers: [child_cls.new])
+        end
+
+        let(:copy) do
+          original.send(method)
+        end
+
+        context 'embedded child is root of hierarchy' do
+          let(:child_cls) do
+            CopyableSpec::Influencer
+          end
+
+          before do
+            # When embedded class is the root in hierarchy, their
+            # discriminator value is not explicitly stored.
+            child_cls.discriminator_mapping[child_cls.name].should be nil
+          end
+
+          it 'works' do
+            copy.class.should be original.class
+            copy.object_id.should_not == original.object_id
+          end
+        end
+
+        context 'embedded child is leaf of hierarchy' do
+          let(:child_cls) do
+            CopyableSpec::Youtuber
+          end
+
+          before do
+            # When embedded class is a leaf in hierarchy, their
+            # discriminator value is explicitly stored.
+            child_cls.discriminator_mapping[child_cls.name].should_not be nil
+          end
+
+          it 'works' do
+            copy.class.should be original.class
+            copy.object_id.should_not == original.object_id
           end
         end
       end

@@ -14,7 +14,7 @@ describe Mongoid::Clients::Options, retry: 3 do
     Mongoid::Clients.clients.clear
   end
 
-  describe '#with', if: non_legacy_server? do
+  describe '#with' do
 
     context 'when passing some options' do
 
@@ -111,6 +111,8 @@ describe Mongoid::Clients::Options, retry: 3 do
         end
 
         context 'when the options create a new cluster' do
+          # This test fails on sharded topologies in Evergreen but not locally
+          require_topology :single, :replica_set
 
           let(:options) do
             { connect_timeout: 2 }
@@ -127,6 +129,8 @@ describe Mongoid::Clients::Options, retry: 3 do
         end
 
         context 'when the options do not create a new cluster' do
+          # This test fails on sharded topologies in Evergreen but not locally
+          require_topology :single, :replica_set
 
           let(:options) do
             { database: 'same-cluster' }
@@ -147,7 +151,7 @@ describe Mongoid::Clients::Options, retry: 3 do
           let(:config) do
             {
                 default: { hosts: SpecConfig.instance.addresses, database: database_id },
-                secondary: { uri: "mongodb://#{SpecConfig.instance.addresses.first}/secondary-db?connectTimeoutMS=3000" }
+                analytics: { uri: "mongodb://#{SpecConfig.instance.addresses.first}/analytics-db?connectTimeoutMS=3000" }
             }
           end
 
@@ -160,14 +164,14 @@ describe Mongoid::Clients::Options, retry: 3 do
           end
 
           let(:persistence_context) do
-            Minim.with(client: :secondary) do |klass|
+            Minim.with(client: :analytics) do |klass|
               klass.persistence_context
             end
           end
 
           it 'uses the database specified in the uri' do
-            expect(persistence_context.database_name).to eq('secondary-db')
-            expect(persistence_context.client.database.name).to eq('secondary-db')
+            expect(persistence_context.database_name).to eq('analytics-db')
+            expect(persistence_context.client.database.name).to eq('analytics-db')
           end
 
           it 'uses the options specified in the uri' do
@@ -287,7 +291,7 @@ describe Mongoid::Clients::Options, retry: 3 do
     end
   end
 
-  describe '.with', if: non_legacy_server? do
+  describe '.with' do
 
     context 'when passing some options' do
 
@@ -340,8 +344,8 @@ describe Mongoid::Clients::Options, retry: 3 do
         let(:config) do
           {
               default: { hosts: SpecConfig.instance.addresses, database: database_id },
-              secondary: {
-                uri: "mongodb://#{SpecConfig.instance.addresses.first}/secondary-db",
+              analytics: {
+                uri: "mongodb://#{SpecConfig.instance.addresses.first}/analytics-db",
                 options: {
                   server_selection_timeout: 0.5,
                 },
@@ -354,14 +358,14 @@ describe Mongoid::Clients::Options, retry: 3 do
         end
 
         let(:persistence_context) do
-          test_model.with(client: :secondary) do |object|
+          test_model.with(client: :analytics) do |object|
             object.persistence_context
           end
         end
 
         it 'uses the database specified in the uri' do
-          expect(persistence_context.database_name).to eq('secondary-db')
-          expect(persistence_context.client.database.name).to eq('secondary-db')
+          expect(persistence_context.database_name).to eq('analytics-db')
+          expect(persistence_context.client.database.name).to eq('analytics-db')
         end
       end
 
@@ -402,22 +406,26 @@ describe Mongoid::Clients::Options, retry: 3 do
         end
 
         context 'when the options create a new cluster' do
+          # This test fails on sharded topologies in Evergreen but not locally
+          require_topology :single, :replica_set
 
           let(:options) do
             { connect_timeout: 2 }
           end
 
           it 'creates a new cluster' do
-            expect(connections_before).to be <(connections_during)
-            expect(cluster_before).not_to be(cluster_during)
+            expect(connections_during).to be > connections_before
+            expect(cluster_during).not_to be(cluster_before)
           end
 
           it 'disconnects the new cluster when the block exits' do
-            expect(connections_before).to eq(connections_after)
+            expect(connections_after).to eq(connections_before)
           end
         end
 
         context 'when the options do not create a new cluster' do
+          # This test fails on sharded topologies in Evergreen but not locally
+          require_topology :single, :replica_set
 
           let(:options) { { read: :secondary } }
 

@@ -786,12 +786,72 @@ describe Mongoid::Criteria do
 
   describe "#field_list" do
 
-    let(:criteria) do
-      Band.only(:name)
+    context "when using the default discriminator key" do
+      let(:criteria) do
+        Doctor.only(:_id)
+      end
+
+      it "returns the fields with required _id minus type" do
+        expect(criteria.field_list).to eq([ "_id" ])
+      end
     end
 
-    it "returns the fields with required _id minus type" do
-      expect(criteria.field_list).to eq([ "_id", "name" ])
+    context "when using a custom discriminator key" do
+      before do
+        Person.discriminator_key = "dkey"
+      end
+
+      after do
+        Person.discriminator_key = nil
+      end
+
+      let(:criteria) do
+        Doctor.only(:_id, :_type)
+      end
+
+      it "returns the fields with type without dkey" do
+        expect(criteria.field_list).to eq([ "_id", "_type" ])
+      end
+    end
+  end
+
+  describe "#find" do
+    let!(:depeche) do
+      Band.create!(name: "Depeche Mode")
+    end
+
+    let(:criteria) do
+      Band.where(name: "Depeche Mode")
+    end
+
+    context "when given a block" do
+      it "behaves as Enumerable" do
+        result = criteria.find { |c| c.name == "Depeche Mode" }
+        expect(result).to eq(depeche)
+      end
+    end
+
+    context "when given a Proc and a block" do
+      it "behaves as Enumerable" do
+        result = criteria.find(-> {"default"}) { |c| c.name == "Not Depeche Mode" }
+        expect(result).to eq("default")
+      end
+    end
+
+    context "when given a Proc" do
+      it "behaves as Enumerable" do
+        lambda do
+          criteria.find(-> {"default"})
+        # Proc is not serializable to a BSON type
+        end.should raise_error(BSON::Error::UnserializableClass)
+      end
+    end
+
+    context "when given an id" do
+      it "behaves as Findable" do
+        result = criteria.find(depeche.id)
+        expect(result).to eq(depeche)
+      end
     end
   end
 
@@ -2337,7 +2397,7 @@ describe Mongoid::Criteria do
       end
 
       it "returns the map/reduce results" do
-        expect(map_reduce).to eq([
+        expect(map_reduce.sort_by { |doc| doc['_id'] }).to eq([
           { "_id" => "Depeche Mode", "value" => { "likes" => 200 }},
           { "_id" => "Tool", "value" => { "likes" => 100 }}
         ])
@@ -2699,220 +2759,6 @@ describe Mongoid::Criteria do
 
     it "returns the matching documents" do
       expect(criteria).to eq([ match ])
-    end
-  end
-
-  describe "#only" do
-
-    let!(:band) do
-      Band.create(name: "Depeche Mode", likes: 3, views: 10)
-    end
-
-    context "when not using inheritance" do
-
-      context "when passing splat args" do
-
-        let(:criteria) do
-          Band.only(:_id)
-        end
-
-        it "limits the returned fields" do
-          expect {
-            criteria.first.name
-          }.to raise_error(ActiveModel::MissingAttributeError)
-        end
-
-        it "does not add _type to the fields" do
-          expect(criteria.options[:fields]["_type"]).to be_nil
-        end
-      end
-
-      context "when not including id" do
-
-        let(:criteria) do
-          Band.only(:name)
-        end
-
-        it "responds to id anyway" do
-          expect {
-            criteria.first.id
-          }.to_not raise_error
-        end
-      end
-
-      context "when passing an array" do
-
-        let(:criteria) do
-          Band.only([ :name, :likes ])
-        end
-
-        it "includes the limited fields" do
-          expect(criteria.first.name).to_not be_nil
-        end
-
-        it "excludes the non included fields" do
-          expect {
-            criteria.first.active
-          }.to raise_error(ActiveModel::MissingAttributeError)
-        end
-
-        it "does not add _type to the fields" do
-          expect(criteria.options[:fields]["_type"]).to be_nil
-        end
-      end
-
-      context "when instantiating a class of another type inside the iteration" do
-
-        let(:criteria) do
-          Band.only(:name)
-        end
-
-        it "only limits the fields on the correct model" do
-          criteria.each do |band|
-            expect(Person.new.age).to eq(100)
-          end
-        end
-      end
-
-      context "when instantiating a document not in the result set" do
-
-        let(:criteria) do
-          Band.only(:name)
-        end
-
-        it "only limits the fields on the correct criteria" do
-          criteria.each do |band|
-            expect(Band.new.active).to be true
-          end
-        end
-      end
-
-      context "when nesting a criteria within a criteria" do
-
-        let(:criteria) do
-          Band.only(:name)
-        end
-
-        it "only limits the fields on the correct criteria" do
-          criteria.each do |band|
-            Band.all.each do |b|
-              expect(b.active).to be true
-            end
-          end
-        end
-      end
-    end
-
-    context "when using inheritance" do
-
-      let(:criteria) do
-        Doctor.only(:_id)
-      end
-
-      it "adds _type to the fields" do
-        expect(criteria.options[:fields]["_type"]).to eq(1)
-      end
-    end
-
-    context "when limiting to embedded documents" do
-
-      context "when the embedded documents are aliased" do
-
-        let(:criteria) do
-          Person.only(:phones)
-        end
-
-        it "properly uses the database field name" do
-          expect(criteria.options).to eq(fields: { "_id" => 1, "mobile_phones" => 1 })
-        end
-      end
-    end
-
-    context 'when the field is localized' do
-
-      before do
-        I18n.locale = :en
-        d = Dictionary.create(description: 'english-text')
-        I18n.locale = :de
-        d.description = 'deutsch-text'
-        d.save
-      end
-
-      after do
-        I18n.locale = :en
-      end
-
-      context 'when entire field is included' do
-
-        let(:dictionary) do
-          Dictionary.only(:description).first
-
-        end
-
-        it 'loads all translations' do
-          expect(dictionary.description_translations.keys).to include('de', 'en')
-        end
-
-        it 'returns the field value for the current locale' do
-          I18n.locale = :en
-          expect(dictionary.description).to eq('english-text')
-          I18n.locale = :de
-          expect(dictionary.description).to eq('deutsch-text')
-        end
-      end
-
-      context 'when a specific locale is included' do
-
-        let(:dictionary) do
-          Dictionary.only(:'description.de').first
-        end
-
-        it 'loads translations only for the included locale' do
-          expect(dictionary.description_translations.keys).to include('de')
-          expect(dictionary.description_translations.keys).to_not include('en')
-        end
-
-        it 'returns the field value for the included locale' do
-          I18n.locale = :en
-          expect(dictionary.description).to be_nil
-          I18n.locale = :de
-          expect(dictionary.description).to eq('deutsch-text')
-        end
-      end
-
-      context 'when entire field is excluded' do
-
-        let(:dictionary) do
-          Dictionary.without(:description).first
-        end
-
-        it 'does not load all translations' do
-          expect(dictionary.description_translations.keys).to_not include('de', 'en')
-        end
-
-        it 'raises an ActiveModel::MissingAttributeError when attempting to access the field' do
-          expect{dictionary.description}.to raise_error ActiveModel::MissingAttributeError
-        end
-      end
-
-      context 'when a specific locale is excluded' do
-
-        let(:dictionary) do
-          Dictionary.without(:'description.de').first
-        end
-
-        it 'does not load excluded translations' do
-          expect(dictionary.description_translations.keys).to_not include('de')
-          expect(dictionary.description_translations.keys).to include('en')
-        end
-
-        it 'returns nil for excluded translations' do
-          I18n.locale = :en
-          expect(dictionary.description).to eq('english-text')
-          I18n.locale = :de
-          expect(dictionary.description).to be_nil
-        end
-      end
     end
   end
 
@@ -3386,34 +3232,75 @@ describe Mongoid::Criteria do
   end
 
   describe "#type" do
+    context "when using the default discriminator_key" do
+      context "when the type is a string" do
 
-    context "when the type is a string" do
+        let!(:browser) do
+          Browser.create
+        end
 
-      let!(:browser) do
-        Browser.create
+        let(:criteria) do
+          Canvas.all.type("Browser")
+        end
+
+        it "returns documents with the provided type" do
+          expect(criteria).to eq([ browser ])
+        end
       end
 
-      let(:criteria) do
-        Canvas.all.type("Browser")
-      end
+      context "when the type is an Array of type" do
 
-      it "returns documents with the provided type" do
-        expect(criteria).to eq([ browser ])
+        let!(:browser) do
+          Firefox.create
+        end
+
+        let(:criteria) do
+          Canvas.all.type([ "Browser", "Firefox" ])
+        end
+
+        it "returns documents with the provided types" do
+          expect(criteria).to eq([ browser ])
+        end
       end
     end
 
-    context "when the type is an Array of type" do
-
-      let!(:browser) do
-        Firefox.create
+    context "when using a custom discriminator_key" do
+      before do
+        Canvas.discriminator_key = "dkey"
       end
 
-      let(:criteria) do
-        Canvas.all.type([ "Browser", "Firefox" ])
+      after do
+        Canvas.discriminator_key = nil
       end
 
-      it "returns documents with the provided types" do
-        expect(criteria).to eq([ browser ])
+      context "when the type is a string" do
+
+        let!(:browser) do
+          Browser.create
+        end
+
+        let(:criteria) do
+          Canvas.all.type("Browser")
+        end
+
+        it "returns documents with the provided type" do
+          expect(criteria).to eq([ browser ])
+        end
+      end
+
+      context "when the type is an Array of type" do
+
+        let!(:browser) do
+          Firefox.create
+        end
+
+        let(:criteria) do
+          Canvas.all.type([ "Browser", "Firefox" ])
+        end
+
+        it "returns documents with the provided types" do
+          expect(criteria).to eq([ browser ])
+        end
       end
     end
   end
@@ -3426,6 +3313,38 @@ describe Mongoid::Criteria do
 
     let!(:non_match) do
       Band.create(name: "Tool")
+    end
+
+    context 'when provided no arguments' do
+      context 'on a model class' do
+        it 'returns an empty criteria' do
+          Band.where.selector.should == {}
+        end
+      end
+
+      context 'on an association' do
+        it 'returns an empty criteria' do
+          match.records.where.selector.should == {}
+        end
+      end
+    end
+
+    context 'when provided multiple arguments' do
+      context 'on a model class' do
+        it 'raises ArgumentError' do
+          lambda do
+            Band.where({foo: 1}, {bar: 2})
+          end.should raise_error(ArgumentError, /where requires zero or one arguments/)
+        end
+      end
+
+      context 'on an association' do
+        it 'raises ArgumentError' do
+          lambda do
+            match.records.where({foo: 1}, {bar: 2})
+          end.should raise_error(ArgumentError, /where requires zero or one arguments/)
+        end
+      end
     end
 
     context "when provided a string" do
@@ -3502,7 +3421,8 @@ describe Mongoid::Criteria do
         end
       end
 
-      context "when querying on a BSON::Decimal128", if: decimal128_supported? do
+      context "when querying on a BSON::Decimal128" do
+        min_server_version '3.4'
 
         let(:decimal) do
           BSON::Decimal128.new("0.0005")
@@ -3549,7 +3469,7 @@ describe Mongoid::Criteria do
       let(:criteria) { Band.where(foo: 1).where(foo: 2) }
 
       it 'combines criteria' do
-        expect(criteria.selector).to eq('$and' => [{'foo' => 1}], 'foo' => 2)
+        expect(criteria.selector).to eq('foo' => 1, '$and' => [{'foo' => 2}])
       end
     end
 
@@ -3557,15 +3477,17 @@ describe Mongoid::Criteria do
       let(:criteria) { Band.where(foo: 1, bar: 3).where(foo: 2) }
 
       it 'combines criteria' do
-        expect(criteria.selector).to eq('$and' => [{'foo' => 1, 'bar' => 3}], 'foo' => 2)
+        expect(criteria.selector).to eq(
+          'foo' => 1, '$and' => [{'foo' => 2}], 'bar' => 3)
       end
     end
 
     context 'when given same key in separate calls and other criteria are added later' do
       let(:criteria) { Band.where(foo: 1).where(foo: 2).where(bar: 3) }
 
-      it 'adds other criteria to top level' do
-        expect(criteria.selector).to eq('$and' => [{'foo' => 1}], 'foo' => 2, 'bar' => 3)
+      it 'combines criteria' do
+        expect(criteria.selector).to eq(
+          'foo' => 1, '$and' => [{'foo' => 2}], 'bar' => 3)
       end
     end
   end
@@ -3588,6 +3510,7 @@ describe Mongoid::Criteria do
     end
 
     context "when the code has scope" do
+      max_server_version '4.2'
 
       let(:criteria) do
         Band.for_js("this.name == param", param: "Depeche Mode")
@@ -3699,7 +3622,7 @@ describe Mongoid::Criteria do
     end
   end
 
-  describe "#geo_spacial" do
+  describe "#geo_spatial" do
 
     context "when checking within a polygon" do
 
@@ -3712,7 +3635,7 @@ describe Mongoid::Criteria do
       end
 
       let(:criteria) do
-        Bar.geo_spacial(
+        Bar.geo_spatial(
           :location.within_polygon => [[[ 50, 10 ], [ 50, 20 ], [ 60, 20 ], [ 60, 10 ], [ 50, 10 ]]]
         )
       end
@@ -3757,73 +3680,76 @@ describe Mongoid::Criteria do
     end
   end
 
-  describe "#without" do
-
-    let!(:person) do
-      Person.create!(username: "davinci", age: 50, pets: false)
-    end
-
-    context "when omitting to embedded documents" do
-
-      context "when the embedded documents are aliased" do
+  describe "#type_selection" do
+    context "when using the default discriminator_key" do
+      context "when only one subclass exists" do
 
         let(:criteria) do
-          Person.without(:phones)
+          described_class.new(Firefox)
         end
 
-        it "properly uses the database field name" do
-          expect(criteria.options).to eq(fields: { "mobile_phones" => 0 })
+        let(:selection) do
+          criteria.send(:type_selection)
+        end
+
+        it "does not use an $in query" do
+          expect(selection).to eq({ _type: "Firefox" })
+        end
+      end
+
+      context "when more than one subclass exists" do
+
+        let(:criteria) do
+          described_class.new(Browser)
+        end
+
+        let(:selection) do
+          criteria.send(:type_selection)
+        end
+
+        it "does not use an $in query" do
+          expect(selection).to eq({ _type: { "$in" => [ "Firefox", "Browser" ]}})
         end
       end
     end
 
-    context "when excluding id" do
-
-      let(:criteria) do
-        Person.without(:_id, :id, "_id", "id")
+    context "when using a custom discriminator_key" do
+      before do
+        Canvas.discriminator_key = "dkey"
       end
 
-      it "does not raise error" do
-        expect {
-          criteria.first.id
-        }.to_not raise_error
+      after do
+        Canvas.discriminator_key = nil
       end
 
-      it "returns id anyway" do
-        expect(criteria.first.id).to_not be_nil
-      end
-    end
-  end
+      context "when only one subclass exists" do
 
-  describe "#type_selection" do
+        let(:criteria) do
+          described_class.new(Firefox)
+        end
 
-    context "when only one subclass exists" do
+        let(:selection) do
+          criteria.send(:type_selection)
+        end
 
-      let(:criteria) do
-        described_class.new(Firefox)
-      end
-
-      let(:selection) do
-        criteria.send(:type_selection)
+        it "does not use an $in query" do
+          expect(selection).to eq({ dkey: "Firefox" })
+        end
       end
 
-      it "does not use an $in query" do
-        expect(selection).to eq({ _type: "Firefox" })
-      end
-    end
+      context "when more than one subclass exists" do
 
-    context "when more than one subclass exists" do
+        let(:criteria) do
+          described_class.new(Browser)
+        end
 
-      let(:criteria) do
-        described_class.new(Browser)
-      end
+        let(:selection) do
+          criteria.send(:type_selection)
+        end
 
-      let(:selection) do
-        criteria.send(:type_selection)
-      end
-
-      it "does not use an $in query" do
-        expect(selection).to eq({ _type: { "$in" => [ "Firefox", "Browser" ]}})
+        it "does not use an $in query" do
+          expect(selection).to eq({ dkey: { "$in" => [ "Firefox", "Browser" ]}})
+        end
       end
     end
   end

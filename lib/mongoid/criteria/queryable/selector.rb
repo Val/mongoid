@@ -84,22 +84,49 @@ module Mongoid
         # Evolves a multi-list selection, like an $and or $or criterion, and
         # performs the necessary serialization.
         #
-        # @api private
-        #
         # @example Evolve the multi-selection.
         #   selector.evolve_multi([{ field: "value" }])
         #
-        # @param [ Array<Hash> ] value The multi-selection.
+        # @param [ Array<Hash> ] specs The multi-selection.
         #
         # @return [ Array<Hash> ] The serialized values.
         #
         # @since 1.0.0
-        def evolve_multi(value)
-          value.map do |val|
-            Hash[val.map do |key, _value|
-              _value = evolve_multi(_value) if multi_selection?(key)
+        #
+        # @api private
+        def evolve_multi(specs)
+          unless specs.is_a?(Array)
+            raise ArgumentError, "specs is not an array: #{specs.inspect}"
+          end
+          specs.map do |spec|
+            Hash[spec.map do |key, value|
+              # If an application nests conditionals, e.g.
+              # {'$or' => [{'$or' => {...}}]},
+              # when evolve_multi is called for the top level hash,
+              # this call recursively transforms the bottom level $or.
+              if multi_selection?(key)
+                value = evolve_multi(value)
+              end
+
+              # storage_pair handles field aliases but not localization for
+              # some reason, although per its documentation Smash supposedly
+              # owns both.
               name, serializer = storage_pair(key)
-              [ localized_key(name, serializer), evolve(serializer, _value) ]
+              final_key = localized_key(name, serializer)
+              # This performs type conversions on the value and transformations
+              # that depend on the type of the field that the value is stored
+              # in, but not transformations that have to do with query shape.
+              evolved_value = evolve(serializer, value)
+
+              # This builds a query shape around the value, when the query
+              # involves complex keys. For example, {:foo.lt => 5} produces
+              # {'foo' => {'$lt' => 5}}. This step should be done after all
+              # value-based processing is complete.
+              if key.is_a?(Key)
+                evolved_value = key.transform_value(evolved_value)
+              end
+
+              [ final_key, evolved_value ]
             end]
           end.uniq
         end

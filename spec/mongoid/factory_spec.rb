@@ -78,28 +78,98 @@ describe Mongoid::Factory do
     end
 
     context "when type is not preset" do
+      context "when using the default discriminator key" do
+        let(:attributes) do
+          { "title" => "Sir" }
+        end
 
-      let(:attributes) do
-        { "title" => "Sir" }
+        let(:person) do
+          described_class.build(Person, attributes)
+        end
+
+        it "instantiates based on the provided class" do
+          expect(person.title).to eq("Sir")
+        end
+
+        context "when the type is a symbol" do
+
+          let(:person) do
+            described_class.build(Person, { :_type => "Doctor" })
+          end
+
+          it "instantiates the subclass" do
+            expect(person.class).to eq(Doctor)
+          end
+        end
       end
 
-      let(:person) do
-        described_class.build(Person, attributes)
+      context "when using a custom discriminator key" do
+        before do
+          Person.discriminator_key = "dkey"
+        end
+
+        after do
+          Person.discriminator_key = nil
+        end
+
+        let(:attributes) do
+          { "title" => "Sir" }
+        end
+
+        let(:person) do
+          described_class.build(Person, attributes)
+        end
+
+        it "instantiates based on the provided class" do
+          expect(person.title).to eq("Sir")
+        end
+
+        context "when the type is a symbol" do
+
+          let(:person) do
+            described_class.build(Person, { :dkey => "Doctor" })
+          end
+
+          it "instantiates the subclass" do
+            expect(person.class).to eq(Doctor)
+          end
+        end
       end
 
-      it "instantiates based on the provided class" do
-        expect(person.title).to eq("Sir")
-      end
-    end
+      context "when using a custom discriminator key and value" do
+        before do
+          Person.discriminator_key = "dkey"
+          Doctor.discriminator_value = "dvalue"
+        end
 
-    context "when the type is a symbol" do
+        after do
+          Person.discriminator_key = nil
+          Doctor.discriminator_value = nil
+        end
 
-      let(:person) do
-        described_class.build(Person, { :_type => "Doctor" })
-      end
+        let(:attributes) do
+          { "title" => "Sir", "dkey" => "dvalue" }
+        end
 
-      it "instantiates the subclass" do
-        expect(person.class).to eq(Doctor)
+        let(:doctor) do
+          described_class.build(Person, attributes)
+        end
+
+        it "instantiates based on the provided class" do
+          expect(doctor.title).to eq("Sir")
+        end
+
+        it "generates based on the provided class" do
+          expect(doctor).to be_a(Person)
+        end
+
+        it "sets the attributes" do
+          expect(doctor.title).to eq("Sir")
+        end
+
+        it "has the correct discriminator key/value" do
+          expect(doctor.dkey).to eq("dvalue")
+        end
       end
     end
   end
@@ -109,15 +179,64 @@ describe Mongoid::Factory do
     context "when the attributes are nil" do
 
       let(:document) do
-        described_class.from_db(Address, nil)
+        described_class.from_db(model_cls, nil)
       end
 
-      it "generates based on the provided class" do
-        expect(document).to be_a(Address)
+      context 'when model class does not use inheritance' do
+        context 'when model overwrites _id field to not have a default' do
+          let(:model_cls) { Idnodef }
+
+          it "generates based on the provided class" do
+            expect(document).to be_a(model_cls)
+          end
+
+          it "sets the attributes to empty" do
+            expect(document.attributes).to be_empty
+          end
+        end
+
+        context 'with default _id auto-assignment behavior' do
+          let(:model_cls) { Agency }
+
+          it "generates based on the provided class" do
+            expect(document).to be_a(model_cls)
+          end
+
+          it "sets the attributes to generated _id only" do
+            document.attributes.should == {'_id' => document.id}
+          end
+        end
       end
 
-      it "sets the attributes to empty" do
-        expect(document.attributes).to be_empty
+      context 'when model class is an inheritance root' do
+        let(:model_cls) { Address }
+
+        before do
+          # Ensure a child is defined
+          ShipmentAddress.superclass.should be model_cls
+        end
+
+        it "generates based on the provided class" do
+          expect(document).to be_a(model_cls)
+        end
+
+        it "sets the attributes to _type only" do
+          # Note that Address provides the _id override.
+          document.attributes.should == {'_type' => 'Address'}
+        end
+      end
+
+      context 'when model class is an inheritance leaf' do
+        let(:model_cls) { ShipmentAddress }
+
+        it "generates based on the provided class" do
+          expect(document).to be_a(model_cls)
+        end
+
+        it "sets the attributes to empty" do
+          # Note that Address provides the _id override.
+          document.attributes.should == {'_type' => 'ShipmentAddress'}
+        end
       end
     end
 
@@ -179,20 +298,80 @@ describe Mongoid::Factory do
 
     context "when a type is not in the attributes" do
 
-      let(:attributes) do
-        { "title" => "Sir" }
+      context "when using the default discriminator key" do
+        let(:attributes) do
+          { "title" => "Sir" }
+        end
+
+        let(:document) do
+          described_class.from_db(Person, attributes)
+        end
+
+        it "generates based on the provided class" do
+          expect(document).to be_a(Person)
+        end
+
+        it "sets the attributes" do
+          expect(document.title).to eq("Sir")
+        end
       end
 
-      let(:document) do
-        described_class.from_db(Person, attributes)
+      context "when using a custom discriminator key" do
+        before do
+          Person.discriminator_key = "dkey"
+        end
+
+        after do
+          Person.discriminator_key = nil
+        end
+
+        let(:attributes) do
+          { "title" => "Sir" }
+        end
+
+        let(:document) do
+          described_class.from_db(Person, attributes)
+        end
+
+        it "generates based on the provided class" do
+          expect(document).to be_a(Person)
+        end
+
+        it "sets the attributes" do
+          expect(document.title).to eq("Sir")
+        end
       end
 
-      it "generates based on the provided class" do
-        expect(document).to be_a(Person)
-      end
+      context "when using a custom discriminator key and discriminator value" do
+        before do
+          Person.discriminator_key = "dkey"
+          Person.discriminator_value = "dvalue"
+        end
 
-      it "sets the attributes" do
-        expect(document.title).to eq("Sir")
+        after do
+          Person.discriminator_key = nil
+          Person.discriminator_value = nil
+        end
+
+        let(:attributes) do
+          { "title" => "Sir" }
+        end
+
+        let(:document) do
+          described_class.from_db(Person, attributes)
+        end
+
+        it "generates based on the provided class" do
+          expect(document).to be_a(Person)
+        end
+
+        it "sets the attributes" do
+          expect(document.title).to eq("Sir")
+        end
+
+        it "has the correct discriminator key/value" do
+          expect(document.dkey).to eq("dvalue")
+        end
       end
     end
 
@@ -211,7 +390,61 @@ describe Mongoid::Factory do
           person
         }.to raise_exception(Mongoid::Errors::UnknownModel)
       end
+    end
 
+    context 'when type does not correspond to a Class name with custom discriminator key' do
+
+      before do
+        Person.discriminator_key = "dkey"
+      end
+
+      after do
+        Person.discriminator_key = nil
+      end
+
+      let(:attributes) do
+        { "title" => "Sir", "dkey" => "invalid_class_name" }
+      end
+
+      let(:person) do
+        described_class.from_db(Person, attributes)
+      end
+
+      it 'raises a exception' do
+        expect {
+          person
+        }.to raise_exception(Mongoid::Errors::UnknownModel)
+      end
+    end
+
+    context 'when type does not correspond to a custom discriminator_value' do
+      before do
+        Person.discriminator_value = "dvalue"
+      end
+
+      after do
+        Person.discriminator_value = nil
+      end
+
+      let(:attributes) do
+        { "title" => "Sir", "_type" => "dvalue" }
+      end
+
+      let(:person) do
+        described_class.from_db(Person, attributes)
+      end
+
+      it "generates based on the provided class" do
+        expect(person).to be_a(Person)
+      end
+
+      it "sets the attributes" do
+        expect(person.title).to eq("Sir")
+      end
+
+      it "has the correct discriminator key/value" do
+        expect(person._type).to eq("dvalue")
+      end
     end
 
     context 'when type is correct but the instantiation raises a NoMethodError' do

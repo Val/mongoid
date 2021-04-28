@@ -1,13 +1,15 @@
 .. _mongoid-configuration:
 
-=============
+*************
 Configuration
-=============
+*************
+
+.. default-domain:: mongodb
 
 .. contents:: On this page
    :local:
    :backlinks: none
-   :depth: 1
+   :depth: 2
    :class: singlecol
 
 Mongoid is customarily configured through a ``mongoid.yml`` file that specifies
@@ -30,39 +32,32 @@ i.e. ``development``, ``test`` or ``production``. The third level key,
 ``default`` in the above example, refers to the Mongo client name.
 Most applications will use a single client named ``default``.
 
-Rails Applications
-******************
 
-If you are using Rails, you can have Mongoid generate a default configuration
-file for you by running the following command:
+Generating Default Configuration
+================================
+
+If you are using Ruby on Rails, you can have Mongoid generate a default
+configuration file for you by running the following command:
 
 .. code-block:: bash
 
-  $ rails g mongoid:config
+  rails g mongoid:config
 
 The configuration file will be placed in ``config/mongoid.yml``.
 
-Environment Determination
-*************************
+If you are not using Ruby on Rails, you can copy the minimal configuration
+given above and save it as ``config/mongoid.yml``.
 
-When Mongoid loads its configuration, it chooses the environment to use
-in the following order:
 
-- ``Rails.env`` if using Rails.
-- ``Sinatra::Base.environment`` if using Sinatra.
-- ``RACK_ENV`` environment variable.
-- ``MONGOID_ENV`` environment variable.
+Loading Mongoid Configuration
+=============================
 
-If you are not building a Rack based application and want to override the
-environment programatically, you can pass a second parameter to ``load!``
-as follows:
+If you are using Ruby on Rails, Mongoid configuration is automatically loaded
+for the current environment as stored in ``Rails.env`` when the application
+loads.
 
-.. code-block:: ruby
-
-  Mongoid.load!("path/to/your/mongoid.yml", :production)
-
-Depending on your version of Rails, you may also need to configure the ORM
-to be Mongoid in application.rb like so:
+You may need to configure the ORM for your application to be Mongoid by
+adding the following to ``application.rb``:
 
 .. code-block:: ruby
 
@@ -70,12 +65,56 @@ to be Mongoid in application.rb like so:
     g.orm :mongoid
   end
 
-Anatomy of a Mongoid Config
-***************************
+If you are not using Ruby on Rails, Mongoid configuration must be loaded
+manually. This can be done via the ``Mongoid.load!`` method, which takes
+the configuration file path as its argument, as follows:
 
-Let's have a look at a full-blown ``mongoid.yml`` and explain the full power
-of what Mongoid can do. The following configuration has explanation of the
-various options in the comments above each key:
+.. code-block:: ruby
+
+  # Use automatically detected environment name
+  Mongoid.load!("path/to/your/mongoid.yml")
+
+  # Specify environment name manually
+  Mongoid.load!("path/to/your/mongoid.yml", :production)
+
+When Mongoid is asked to automatically detect the environment name,
+it does so by examining the following sources, in order:
+
+- If ``Rails`` top level constant is defined, ``Rails.env``.
+- If ``Sinatra`` top level constant is defined, ``Sinatra::Base.environment``.
+- The ``RACK_ENV`` environment variable.
+- The ``MONGOID_ENV`` environment variable.
+
+It is also possible to configure Mongoid directly in Ruby, without using
+a configuration file. This configuration style does not support the concept
+of environments - whatever configuration is provided, it is applied to the
+current environment - but it does support defining multiple clients.
+
+.. code-block:: ruby
+
+  Mongoid.configure do |config|
+    config.clients.default = {
+      hosts: ['localhost:27017'],
+      database: 'my_db',
+    }
+
+    config.log_level = :warn
+  end
+
+.. note::
+
+  Mongoid must be configured *before* any component of it is used or referenced.
+  Once a component is used or referenced, changing configuration may not apply
+  changes to already instantiated components.
+
+
+.. _configuration-options:
+
+Mongoid Configuration Options
+=============================
+
+The following annotated example ``mongoid.yml`` demonstrates how Mongoid
+can be configured.
 
 .. code-block:: yaml
 
@@ -189,17 +228,45 @@ various options in the comments above each key:
           # The file containing a set of concatenated certification authority certifications
           # used to validate certs passed from the other end of the connection.
           ssl_ca_cert: /path/to/ca.cert
-          
+
           # Compressors to use. (default is to not use compression)
           compressors: [zlib]
 
     # Configure Mongoid specific options. (optional)
     options:
+      # Application name that is printed to the mongodb logs upon establishing
+      # a connection in server versions >= 3.4. Note that the name cannot
+      # exceed 128 bytes. It is also used as the database name if the
+      # database name is not explicitly defined. (default: nil)
+      app_name: MyApplicationName
+
+      # Create indexes in background by default. (default: false)
+      background_indexing: false
+
+      # Mark belongs_to associations as required by default, so that saving a
+      # model with a missing belongs_to association will trigger a validation
+      # error. (default: true)
+      belongs_to_required_by_default: true
+
+      # Set the global discriminator key. (default: "_type")
+      discriminator_key: "_type"
+
+      # Raise an exception when a field is redefined. (default: false)
+      duplicate_fields_exception: false
+
       # Include the root model name in json serialization. (default: false)
       include_root_in_json: false
 
       # Include the _type field in serialization. (default: false)
       include_type_for_serialization: false
+
+      # Whether to join nested persistence contexts for atomic operations
+      # to parent contexts by default. (default: false)
+      join_contexts: false
+
+      # Set the Mongoid and Ruby driver log levels when Mongoid is not using
+      # Ruby on Rails logger instance. (default: :info)
+      log_level: :info
 
       # Preload all models in development, needed when models use
       # inheritance. (default: false)
@@ -223,71 +290,186 @@ various options in the comments above each key:
       # (default: false)
       use_utc: false
 
-      # Set the Mongoid and Ruby driver log levels. (default: :info)
-      log_level: :info
-      
-      # Whether to join nested persistence contexts for atomic operations
-      # to parent contexts by default. (default: false)
-      join_contexts: false
-
-The Ruby driver options may be found in 
+The Ruby driver options may be found in
 `the driver documentation <https://docs.mongodb.com/ruby-driver/current/tutorials/ruby-driver-create-client/>`_.
 
-Inline Configuration
-********************
+ERb Preprocessing
+=================
 
-It is also possible to configure Mongoid directly in Ruby, without using
-a configuration file. This configuration mechanism does not support defining
-multiple environments, however it does support defining multiple clients.
+When loading a configuration file, Mongoid processes it with ERb before
+parsing it as YAML. This allows, for example, constructing the contents of
+the configuration file at runtime based on environment variables:
 
-.. code-block:: ruby
+.. code-block:: yaml
 
-  Mongoid.configure do |config|
-    config.clients.default = {
-      hosts: ['localhost:27017'],
-      database: 'my_db',
-    }
-    
-    config.log_level = :warn
-  end
+  development:
+    clients:
+      default:
+        uri: "<%= ENV['MONGODB_URI'] %>"
+
+.. note::
+
+  When outputting values from ERb, ensure the values are valid YAML and
+  escape them as needed.
+
+.. note::
+
+  Since ERb rendering is performed prior to YAML parsing, all ERb directives
+  in the configuration file are evaluated, including those occurring in YAML
+  comments.
 
 Logging
-*******
+=======
 
-Mongoid and the MongoDB Ruby driver have separate loggers and log levels.
+When configuring logging, it is important to keep in mind that Mongoid
+provides a model layer on top of the MongoDB Ruby driver, and the driver
+dispatches the CRUD operations to the MongoDB deployment. Therefore, some
+of the logging output in an application using Mongoid comes from Mongoid
+itself, and some comes from the driver.
 
-If Mongoid is loaded in the context of a Rails application, it will
-use Rails' configured logger by default. Otherwise Mongoid will configure
-itself to log to ``STDOUT`` with the default log level of ``INFO``.
-
-The Ruby driver's default log level is ``DEBUG``, and changing Mongoid's
-log level does not affect the Ruby driver's log level.
-However, if Mongoid is configured with a configuration file, the
-log level specified in the configuration file will be applied to both
-the Mongoid and the Ruby driver loggers.
-
-To change the log levels:
-
-.. code-block:: ruby
-
-  # Mongoid
-  Mongoid.logger.level = Logger::DEBUG
-  # Ruby driver
-  Mongo::Logger.logger.level = Logger::INFO
-
-*Note:* The Mongo client is a Ruby driver client instance, therefore
+The Mongo client is a Ruby driver client instance, therefore
 the logger of a Mongo client is the Ruby driver logger, not the Mongoid
 logger. In other words:
 
 .. code-block:: ruby
 
   # Ruby driver logger, not Mongoid logger
-  Mongoid.client(:default).logger == Mongo::Logger.logger
+  Mongoid.client(:default).logger
+
+Depending on whether Mongoid is used in a Ruby on Rails application, and how
+both Mongoid and Ruby driver are configured, they may use the same logger
+instance or different instances, potentially with different configurations.
+
+In Ruby on Rails Application
+----------------------------
+
+When used in a Ruby on Rails application, Mongoid by default inherits
+the logger and the log level from Rails, and sets the driver's logger
+to the same logger instance:
+
+.. code-block:: ruby
+
+  Rails.logger === Mongoid.logger
+  # => true
+
+  Mongoid.logger === Mongo::Logger.logger
+  # => true
+
+To change the log level, use `standard Rails configuration
+<https://guides.rubyonrails.org/debugging_rails_applications.html#log-levels>`_.
+Place the following in one of environment configuration files, such as
+``config/environments/production.rb``:
+
+.. code-block:: ruby
+
+  Rails.application.configure do
+    config.log_level = :debug
+  end
+
+.. note::
+
+  The ``log_level`` Mongoid `configuration option <configuration-options>`_
+  is not used when Mongoid operates in a Rails application, because Mongoid
+  inherits Rails' log level in this case.
+
+To configure either Mongoid or driver logger differently from the Rails logger,
+use an initializer as follows:
+
+.. code-block:: ruby
+
+  Rails.application.configure do
+    config.after_initialize do
+      # Change Mongoid log destination and/or level
+      Mongoid.logger = Logger.new(STDERR).tap do |logger|
+        logger.level = Logger::DEBUG
+      end
+
+      # Change driver log destination and/or level
+      Mongo::Logger.logger = Logger.new(STDERR).tap do |logger|
+        logger.level = Logger::DEBUG
+      end
+    end
+  end
+
+.. note::
+
+  There is currently no provision in the Ruby standard library ``Logger``
+  to return the log device (i.e. the ``IO`` object) that a logger is using.
+  To have, for example, Mongoid and/or the Ruby driver log to the
+  standard Rails log file (e.g. ``log/development.log``) but with a
+  different level from standard Rails logger (``Rails.logger``), the
+  file must be opened separately and the resulting ``IO`` object passed to
+  the ``Logger`` constructor.
+
+.. note::
+
+  Since by default Mongoid sets its own logger and the driver's logger to the
+  same instance as the Rails logger, modifying any of the instances affects
+  all of them. For example the following changes log level for all three
+  loggers, unless the application assigned a separate ``Logger`` instance
+  to `Mongo::Logger.logger`` as described above:
+
+  .. code-block:: ruby
+
+    Mongoid::Logger.logger.level = Logger::DEBUG
+
+Standalone
+----------
+
+When not loaded in a Ruby on Rails application, Mongoid respects the
+``log_level`` top level `configuration option <configuration-options>`_.
+It can be given in the configuration file as follows:
+
+.. code-block:: yaml
+
+  development:
+    clients:
+      default:
+        # ...
+    options:
+      log_level: :debug
+
+... or when configuring Mongoid inline:
+
+.. code-block:: ruby
+
+  Mongoid.configure do |config|
+    config.log_level = :debug
+  end
+
+The default log destination in Mongoid 7.1 and higher is standard error.
+The default log destination in Mongoid 7.0 and lower is standard output.
+To change the log destination, create a new logger instance as follows:
+
+.. code-block:: ruby
+
+  Mongoid.logger = Logger.new(STDERR).tap do |logger|
+    logger.level = Logger::DEBUG
+  end
+
+To change the Ruby driver log level or destination:
+
+.. code-block:: ruby
+
+  Mongo::Logger.logger = Logger.new(STDERR).tap do |logger|
+    logger.level = Logger::DEBUG
+  end
+
+To set the driver logger to be the same as the Mongoid logger:
+
+.. code-block:: ruby
+
+  Mongo::Logger.logger = Mongoid.logger
+
+.. note::
+
+  Mongoid does not alter the driver's logger when running in
+  standalone mode.
 
 .. _time-zones:
 
 Time Zones
-**********
+==========
 
 Ruby has limited time zone support in the standard library. ActiveSupport
 (which Mongoid depends on) offers more comprehensive time zone support.
@@ -302,12 +484,12 @@ time zone handling is as follows:
 
 .. code-block:: bash
 
-  cp /usr/share/zoneinfo/UTC /etc/localtime 
+  cp /usr/share/zoneinfo/UTC /etc/localtime
 
 2. Set ActiveSupport's time zone to UTC:
 
 .. code-block:: ruby
-  
+
   # If using Rails, in application.rb:
   class Application < Rails::Application
     config.time_zone = 'UTC'
@@ -343,33 +525,33 @@ Mongoid offers the following time zone-related configuration options:
   When parsing times without time zone information (such as when
   mongoizing strings or arrays to time), assume the times are specified
   in ActiveSupport's time zone. This is the default.
-  
+
   If false, prefer to work with times using Ruby standard library ``Time`` class.
   Values in fields of type ``Time`` will be returned as ``Time`` instances.
   When parsing times without time zone information, assume the times
   are specified in the Ruby time zone.
-  
+
   Note that the ``use_activesupport_time_zone`` setting does not affect
   fields of types ``Date`` or ``DateTime``, which use ``Date`` and
   ``DateTime`` classes for their values, respectively.
-  
+
   Also note that Mongoid may still utilize both ``Time`` and
   ``ActiveSupport::TimeWithZone`` classes internally, as appropriate,
   regardless of the ``use_activesupport_time_zone`` setting.
-- ``use_utc``: 
+- ``use_utc``:
   If true, times stored in MongoDB will be returned in UTC.
   If false, times stored in MongoDB will be returned in local time
   (as instances of either ``Time`` or ``ActiveSupport::TimeWithZone``,
   respectively in the Ruby default time zone or the ActiveSupport time zone,
   based on the value of ``use_activesupport_time_zone`` setting).
   The default is false.
-  
+
   The ``use_utc`` setting does not affect how times are parsed - parsing
   is always done in local time when the input being parsed does not
   include time zone information. To parse dates in UTC, set the
   system/Ruby or ActiveSupport time zone to UTC (as mentioned above,
   setting all three to UTC leads to the fewest headaches).
-  
+
   Setting ``use_activesupport_time_zone`` to true and ``Time.zone`` to
   UTC (and using ActiveSupport time machinery for all time-related
   operations) is recommended over setting ``use_utc`` to true.
@@ -380,57 +562,173 @@ instance does have an associated time zone, and this time zone will be used
 even if it is different from ActiveSupport's configured time zone when
 ``use_activesupport_time_zone`` is true.
 
-Usage with Forking Servers
-**************************
+Configuring ``SSLContext``
+==========================
+It may be desirable to further configure TLS options in your application, for
+example by enabling or disabling certain ciphers.
 
-When using Mongoid with a forking web server such as Unicorn, worker processes
-need to recreate driver client instances to ensure that background threads
-monitoring the MongoDB cluster are recreated as they are not transfered into
-child processes through forks, and file descriptors and synchronization
-primitives are not shared between workers.
+This can be done by setting TLS context hooks on the Ruby driver -- TLS context
+hooks are user-provided ``Proc``s that will be invoked before any TLS socket
+connection in the driver and can be used to modify the underlying
+``OpenSSL::SSL::SSLContext`` object used by the socket.
 
-It is recommended to not perform any operations on Mongoid models in the
-parent process prior to the fork. If the parent process needs to perform
-operations on the MongoDB database, reset all clients in an ``after_fork``
-handler which is defined in ``unicorn.rb``:
+To set TLS context hooks, add ``Proc``s to the ``Mongo.tls_context_hooks``
+array. This can be done in an initializer. The example below adds a hook
+that only enables the "AES256-SHA" cipher.
 
 .. code-block:: ruby
 
-    after_fork do |server, worker|
+  Mongo.tls_context_hooks.push(
+    Proc.new { |context|
+      context.ciphers = ["AES256-SHA"]
+    }
+  )
+
+  # Only the AES256-SHA cipher will be enabled from this point forward
+
+Every ``Proc`` in ``Mongo.tls_context_hooks`` will be passed an
+``OpenSSL::SSL::SSLContext`` object as its sole argument. These ``Proc``s will
+be executed sequentially during socket creation.
+
+..warning ::
+
+  TLS context hooks are global and will affect all ``Mongo::Client`` instances
+  in an application.
+
+For more information about TLS context hooks, including best practices for
+assigning and removing them, see `the Ruby driver documentation <https://docs.mongodb.com/ruby-driver/current/tutorials/ruby-driver-create-client/#modifying-sslcontext>`_.
+
+Usage with Forking Servers
+==========================
+
+When using Mongoid with a forking web server such as Puma, Unicorn or
+Passenger, it is recommended to not perform any operations on Mongoid models
+in the parent process prior to the fork.
+
+When a process forks, Ruby threads are not transfered to the child processes
+and the Ruby driver Client objects lose their background monitoring. The
+application will typically seem to work just fine until the deployment
+state changes (for example due to network errors, a maintenance event) at
+which point the application is likely to start getting ``NoServerAvailable``
+exception when performing MongoDB operations.
+
+If the parent process needs to perform operations on the MongoDB database,
+reset all clients in the workers after they forked. How to do so depends
+on the web server being used.
+
+If the parent process does not need to perform operations on the MongoDB
+database after child processes are forked, close the clients in the parent
+prior to forking children. If the parent process performs operations on a Mongo
+client and does not close it, the parent process will continue consuming a
+connection slot in the cluster and will continue monitoring the cluster for
+as long as the parent remains alive.
+
+.. note::
+
+  The close/reconnect pattern described here should be used with Ruby driver
+  version 2.6.2 or higher. Previous driver versions did not recreate
+  monitoring threads when reconnecting.
+
+Puma
+----
+
+Use the ``on_worker_boot`` hook to reconnect clients in the workers and
+the ``before_fork`` hook to close clients in the parent process
+(`Puma documentation <https://puma.io/puma/>`_):
+
+.. code-block:: ruby
+
+  on_worker_boot do
+    Mongoid::Clients.clients.each do |name, client|
+      client.close
+      client.reconnect
+    end
+  end
+
+  before_fork do
+    Mongoid.disconnect_clients
+  end
+
+Unicorn
+-------
+
+Use the ``after_fork`` hook to reconnect clients in the workers and
+the ``before_fork`` hook to close clients in the parent process
+(`Unicorn documentation <https://yhbt.net/unicorn/Unicorn/Configurator.html>`_):
+
+.. code-block:: ruby
+
+  after_fork do |server, worker|
+    Mongoid::Clients.clients.each do |name, client|
+      client.close
+      client.reconnect
+    end
+  end
+
+  before_fork do |server, worker|
+    Mongoid.disconnect_clients
+  end
+
+Passenger
+---------
+
+Use the ``starting_worker_process`` hook to reconnect clients in the workers
+(`Passenger documentation
+<https://www.phusionpassenger.com/library/indepth/ruby/spawn_methods/#unintentional-file-descriptor-sharing>`_).
+Passenger does not appear to have a hook that is invoked in the parent process
+before the workers are forked.
+
+.. code-block:: ruby
+
+  if defined?(PhusionPassenger)
+    PhusionPassenger.on_event(:starting_worker_process) do |forked|
       Mongoid::Clients.clients.each do |name, client|
         client.close
         client.reconnect
       end
     end
+  end
 
-If the parent process does not need to perform operations on the MongoDB
-cluster after child processes are forked, close the client in the parent:
+
+.. _query-cache-middleware:
+
+Query Cache Middleware
+======================
+
+.. note::
+
+  When used with Ruby driver version 2.15 or newer, Mongoid's query cache
+  middleware delegates to :ref:`the driver's query cache middleware
+  <driver:query-cache-middleware>`.
+
+Mongoid provides a Rack middleware which enables the :ref:`query cache
+<query-cache>` for the duration of each web request. Below is an example of
+how to enable the query cache middleware in a Ruby on Rails application:
 
 .. code-block:: ruby
 
-    before_fork do |server, worker|
-      Mongoid.disconnect_clients
-    end
+  # config/application.rb
 
-*Note:* This pattern should be used with Ruby driver version 2.6.2 or higher.
-Previous driver versions did not recreate monitoring threads when reconnecting.
+  # Add Mongoid::QueryCache::Middleware at the bottom of the middleware stack
+  # or before other middleware that queries MongoDB.
+  config.middleware.use Mongoid::QueryCache::Middleware
 
-*Note:* If the parent process performs operations on the Mongo client and
-does not close it, the parent process will continue consuming a connection slot
-in the cluster and will continue monitoring the cluster for as long as the
-parent remains alive.
+Please refer to the `Rails on Rack guide
+<https://guides.rubyonrails.org/rails_on_rack.html#configuring-middleware-stack>`_
+for more information about using Rack middleware in Rails applications.
+
 
 Development Configuration
-*************************
+=========================
 
 Driver's default configuration is suitable for production deployment.
 In development, some settings can be adjusted to provide a better developer
 experience.
 
 - ``:server_selection_timeout``: set this to a low value (e.g., ``1``)
-if your MongoDB server is running locally and you start it manually. A low
-server selection timeout will cause the driver to fail quickly when there is
-no server running.
+  if your MongoDB server is running locally and you start it manually. A low
+  server selection timeout will cause the driver to fail quickly when there is
+  no server running.
 
 Sample recommended development configuration:
 

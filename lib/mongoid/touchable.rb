@@ -30,11 +30,30 @@ module Mongoid
         write_attribute(:updated_at, current) if respond_to?("updated_at=")
         write_attribute(field, current) if field
 
-        touches = touch_atomic_updates(field)
-        unless touches["$set"].blank?
-          selector = atomic_selector
-          _root.collection.find(selector).update_one(positionally(selector, touches), session: _session)
+        # If the document being touched is embedded, touch its parents
+        # all the way through the composition hierarchy to the root object,
+        # because when an embedded document is changed the write is actually
+        # performed by the composition root. See MONGOID-3468.
+        if _parent
+          # This will persist updated_at on this document as well as parents.
+          # TODO support passing the field name to the parent's touch method;
+          # I believe it should be read out of
+          # _association.inverse_association.options but inverse_association
+          # seems to not always/ever be set here. See MONGOID-5014.
+          _parent.touch
+        else
+          # If the current document is not embedded, it is composition root
+          # and we need to persist the write here.
+          touches = touch_atomic_updates(field)
+          unless touches["$set"].blank?
+            selector = atomic_selector
+            _root.collection.find(selector).update_one(positionally(selector, touches), session: _session)
+          end
         end
+
+        # Callbacks are invoked on the composition root first and on the
+        # leaf-most embedded document last.
+        # TODO add tests, see MONGOID-5015.
         run_callbacks(:touch)
         true
       end
@@ -89,14 +108,21 @@ module Mongoid
 
       relation_classes.each { |c| c.send(:include, InstanceMethods) }
       method_name = "touch_#{name}_after_create_or_destroy"
-      association.inverse_class.class_eval <<-TOUCH, __FILE__, __LINE__ + 1
-          def #{method_name}
-            without_autobuild do
-              relation = __send__(:#{name})
-              relation.touch #{":#{association.touch_field}" if association.touch_field} if relation
+      association.inverse_class.class_eval do
+        define_method(method_name) do
+          without_autobuild do
+            if relation = __send__(name)
+              if association.touch_field
+                # Note that this looks up touch_field at runtime, rather than
+                # at method definition time.
+                relation.touch association.touch_field
+              else
+                relation.touch
+              end
             end
           end
-      TOUCH
+        end
+      end
       method_name.to_sym
     end
   end

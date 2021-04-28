@@ -7,10 +7,11 @@ module Mongoid
     # This is the superclass for all many to one and many to many association
     # proxies.
     class Many < Association::Proxy
+      extend Forwardable
       include ::Enumerable
 
-      delegate :avg, :max, :min, :sum, to: :criteria
-      delegate :length, :size, to: :_target
+      def_delegators :criteria, :avg, :max, :min, :sum
+      def_delegators :_target, :length, :size, :any?
 
       # Is the association empty?
       #
@@ -21,7 +22,7 @@ module Mongoid
       #
       # @since 2.1.0
       def blank?
-        size == 0
+        !any?
       end
 
       # Creates a new document on the references many association. This will
@@ -206,7 +207,7 @@ module Mongoid
       #
       # @return [ Document ] A matching document or a new/created one.
       def find_or(method, attrs = {}, type = nil, &block)
-        attrs["_type"] = type.to_s if type
+        attrs[klass.discriminator_key] = type.discriminator_value if type
         where(attrs).first || send(method, attrs, type, &block)
       end
     end

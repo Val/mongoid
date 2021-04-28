@@ -5,6 +5,7 @@ require "active_model/attribute_methods"
 require "mongoid/attributes/dynamic"
 require "mongoid/attributes/nested"
 require "mongoid/attributes/processing"
+require "mongoid/attributes/projector"
 require "mongoid/attributes/readonly"
 
 module Mongoid
@@ -159,24 +160,31 @@ module Mongoid
     #
     # @since 1.0.0
     def write_attribute(name, value)
-      access = database_field_name(name)
-      if attribute_writable?(access)
+      field_name = database_field_name(name)
+
+      if attribute_missing?(field_name)
+        raise ActiveModel::MissingAttributeError, "Missing attribute: '#{name}'"
+      end
+
+      if attribute_writable?(field_name)
         _assigning do
-          validate_attribute_value(access, value)
-          localized = fields[access].try(:localized?)
+          validate_attribute_value(field_name, value)
+          localized = fields[field_name].try(:localized?)
           attributes_before_type_cast[name.to_s] = value
-          typed_value = typed_value_for(access, value)
-          unless attributes[access] == typed_value || attribute_changed?(access)
-            attribute_will_change!(access)
+          typed_value = typed_value_for(field_name, value)
+          unless attributes[field_name] == typed_value || attribute_changed?(field_name)
+            attribute_will_change!(field_name)
           end
           if localized
-            attributes[access] ||= {}
-            attributes[access].merge!(typed_value)
+            attributes[field_name] ||= {}
+            attributes[field_name].merge!(typed_value)
           else
-            attributes[access] = typed_value
+            attributes[field_name] = typed_value
           end
           typed_value
         end
+      else
+        # TODO: MONGOID-5072
       end
     end
     alias :[]= :write_attribute
@@ -231,11 +239,7 @@ module Mongoid
     #
     # @since 4.0.0
     def attribute_missing?(name)
-      selection = __selected_fields
-      return false unless selection
-      field = fields[name]
-      (selection.values.first == 0 && selection_excluded?(name, selection, field)) ||
-        (selection.values.first == 1 && !selection_included?(name, selection, field))
+      !Projector.new(__selected_fields).attribute_or_path_allowed?(name)
     end
 
     # Return type-casted attributes.
@@ -252,14 +256,6 @@ module Mongoid
 
     private
 
-    def selection_excluded?(name, selection, field)
-      selection[name] == 0
-    end
-
-    def selection_included?(name, selection, field)
-      selection.key?(name) || selection.keys.collect { |k| k.partition('.').first }.include?(name)
-    end
-
     # Does the string contain dot syntax for accessing hashes?
     #
     # @api private
@@ -271,7 +267,7 @@ module Mongoid
     #
     # @since 3.0.15
     def hash_dot_syntax?(string)
-      string.include?(".".freeze)
+      string.include?(".")
     end
 
     # Return the typecasted value for a field.
@@ -293,9 +289,11 @@ module Mongoid
 
     def read_raw_attribute(name)
       normalized = database_field_name(name.to_s)
+
       if attribute_missing?(normalized)
-        raise ActiveModel::MissingAttributeError, "Missing attribute: '#{name}'."
+        raise ActiveModel::MissingAttributeError, "Missing attribute: '#{name}'"
       end
+
       if hash_dot_syntax?(normalized)
         attributes.__nested__(normalized)
       else
@@ -322,37 +320,64 @@ module Mongoid
       # @since 2.3.0
       def alias_attribute(name, original)
         aliased_fields[name.to_s] = original.to_s
-        class_eval <<-RUBY
-          alias #{name}  #{original}
-          alias #{name}= #{original}=
-          alias #{name}? #{original}?
-          alias #{name}_change   #{original}_change
-          alias #{name}_changed? #{original}_changed?
-          alias reset_#{name}!   reset_#{original}!
-          alias reset_#{name}_to_default!   reset_#{original}_to_default!
-          alias #{name}_was      #{original}_was
-          alias #{name}_will_change! #{original}_will_change!
-          alias #{name}_before_type_cast #{original}_before_type_cast
-        RUBY
+
+        alias_method name, original
+        alias_method "#{name}=", "#{original}="
+        alias_method "#{name}?", "#{original}?"
+        alias_method "#{name}_change", "#{original}_change"
+        alias_method "#{name}_changed?", "#{original}_changed?"
+        alias_method "reset_#{name}!", "reset_#{original}!"
+        alias_method "reset_#{name}_to_default!", "reset_#{original}_to_default!"
+        alias_method "#{name}_was", "#{original}_was"
+        alias_method "#{name}_will_change!", "#{original}_will_change!"
+        alias_method "#{name}_before_type_cast", "#{original}_before_type_cast"
+      end
+
+      # Removes a field alias.
+      #
+      # @param [ Symbol ] name The aliased field name to remove.
+      def unalias_attribute(name)
+        unless aliased_fields.delete(name.to_s)
+          raise AttributeError, "Field #{name} is not an aliased field"
+        end
+
+        remove_method name
+        remove_method "#{name}="
+        remove_method "#{name}?"
+        remove_method "#{name}_change"
+        remove_method "#{name}_changed?"
+        remove_method "reset_#{name}!"
+        remove_method "reset_#{name}_to_default!"
+        remove_method "#{name}_was"
+        remove_method "#{name}_will_change!"
+        remove_method "#{name}_before_type_cast"
       end
     end
 
     private
 
-    # Validates an attribute value. This provides validation checking if
-    # the value is valid for given a field.
-    # For now, only Hash and Array fields are validated.
+    # Validates an attribute value as being assignable to the specified field.
     #
-    # @param [ String, Symbol ] access The name of the attribute to validate.
-    # @param [ Object ] value The to be validated.
+    # For now, only Hash and Array fields are validated, and the value is
+    # being checked to be of an appropriate type (i.e. either Hash or Array,
+    # respectively, or nil).
+    #
+    # This method takes the name of the field as stored in the document
+    # in the database, not (necessarily) the Ruby method name used to read/write
+    # the said field.
+    #
+    # @param [ String, Symbol ] field_name The name of the field.
+    # @param [ Object ] value The value to be validated.
     #
     # @since 3.0.10
-    def validate_attribute_value(access, value)
-      return unless fields[access] && value
+    def validate_attribute_value(field_name, value)
+      return if value.nil?
+      field = fields[field_name]
+      return unless field
       validatable_types = [ Hash, Array ]
-      if validatable_types.include? fields[access].type
-        unless value.is_a? fields[access].type
-          raise Mongoid::Errors::InvalidValue.new(fields[access].type, value.class)
+      if validatable_types.include?(field.type)
+        unless value.is_a?(field.type)
+          raise Mongoid::Errors::InvalidValue.new(field.type, value.class)
         end
       end
     end

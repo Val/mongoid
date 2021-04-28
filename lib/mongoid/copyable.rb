@@ -21,10 +21,14 @@ module Mongoid
       # @note This next line is here to address #2704, even though having an
       # _id and id field in the document would cause problems with Mongoid
       # elsewhere.
-      attrs = clone_document.except("_id", "id")
+      attrs = clone_document.except(*self.class.id_fields)
       dynamic_attrs = {}
+      _attribute_names = self.attribute_names
       attrs.reject! do |attr_name, value|
-        dynamic_attrs.merge!(attr_name => value) unless self.attribute_names.include?(attr_name)
+        unless _attribute_names.include?(attr_name)
+          dynamic_attrs[attr_name] = value
+          true
+        end
       end
       self.class.new(attrs).tap do |object|
         dynamic_attrs.each do |attr_name, value|
@@ -76,8 +80,8 @@ module Mongoid
 
         if association.is_a?(Association::Embedded::EmbedsMany)
           attrs[association.key].each do |attr|
-            embedded_klass = if type = attr['_type']
-              type.constantize
+            embedded_klass = if type = attr[self.class.discriminator_key]
+              association.relation_class.get_discriminator_mapping(type) || association.relation_class
             else
               association.relation_class
             end

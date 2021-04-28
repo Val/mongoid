@@ -10,6 +10,224 @@ describe Mongoid::QueryCache do
     Mongoid::QueryCache.cache { spec.run }
   end
 
+  before(:all) do
+    # It is likely that there are other session leaks in the driver
+    # and/or Mongoid that are unrelated to the query cache. Clear the
+    # SessionRegistry at the start of these tests in order to detect leaks that
+    # occur only within the scope of these tests.
+    #
+    # Other session leaks will be detected and addressed as part of RUBY-2391.
+    SessionRegistry.instance.clear_registry
+  end
+
+  after do
+    SessionRegistry.instance.verify_sessions_ended!
+  end
+
+  describe '#cache' do
+    context 'with driver query cache' do
+      min_driver_version '2.14'
+
+      context 'when query cache is not enabled' do
+        before do
+          Mongoid::QueryCache.enabled = false
+        end
+
+        it 'turns on the query cache within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be false
+
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be false
+        end
+      end
+
+      context 'when query cache is enabled' do
+        before do
+          Mongoid::QueryCache.enabled = true
+        end
+
+        it 'keeps the query cache enabled within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be true
+
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be true
+        end
+      end
+
+      context 'nested inside #uncached' do
+        it 'turns on the query cache in the block' do
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+
+            Mongoid::QueryCache.cache do
+              expect(Mongoid::QueryCache.enabled?).to be true
+            end
+
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+        end
+      end
+    end
+
+    context 'with mongoid query cache' do
+      max_driver_version '2.13'
+
+      context 'when query cache is not enabled' do
+        before do
+          Mongoid::QueryCache.enabled = false
+        end
+
+        it 'turns on the query cache within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be false
+
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be false
+        end
+      end
+
+      context 'when query cache is enabled' do
+        before do
+          Mongoid::QueryCache.enabled = true
+        end
+
+        it 'keeps the query cache enabled within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be true
+
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be true
+        end
+      end
+
+      context 'nested inside #uncached' do
+        it 'turns on the query cache in the block' do
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+
+            Mongoid::QueryCache.cache do
+              expect(Mongoid::QueryCache.enabled?).to be true
+            end
+
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+        end
+      end
+    end
+  end
+
+  describe '#uncached' do
+    context 'with driver query cache' do
+      min_driver_version '2.14'
+
+      context 'when query cache is not enabled' do
+        before do
+          Mongoid::QueryCache.enabled = false
+        end
+
+        it 'keeps the query cache turned off within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be false
+
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be false
+        end
+      end
+
+      context 'when query cache is enabled' do
+        before do
+          Mongoid::QueryCache.enabled = true
+        end
+
+        it 'turns off the query cache within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be true
+
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be true
+        end
+      end
+
+      context 'nested inside #cache' do
+        it 'turns on the query cache in the block' do
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+
+            Mongoid::QueryCache.uncached do
+              expect(Mongoid::QueryCache.enabled?).to be false
+            end
+
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+        end
+      end
+    end
+
+    context 'with mongoid query cache' do
+      max_driver_version '2.13'
+
+      context 'when query cache is not enabled' do
+        before do
+          Mongoid::QueryCache.enabled = false
+        end
+
+        it 'keeps the query cache turned off within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be false
+
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be false
+        end
+      end
+
+      context 'when query cache is enabled' do
+        before do
+          Mongoid::QueryCache.enabled = true
+        end
+
+        it 'turns off the query cache within the block' do
+          expect(Mongoid::QueryCache.enabled?).to be true
+
+          Mongoid::QueryCache.uncached do
+            expect(Mongoid::QueryCache.enabled?).to be false
+          end
+
+          expect(Mongoid::QueryCache.enabled?).to be true
+        end
+      end
+
+      context 'nested inside #cache' do
+        it 'turns on the query cache in the block' do
+          Mongoid::QueryCache.cache do
+            expect(Mongoid::QueryCache.enabled?).to be true
+
+            Mongoid::QueryCache.uncached do
+              expect(Mongoid::QueryCache.enabled?).to be false
+            end
+
+            expect(Mongoid::QueryCache.enabled?).to be true
+          end
+        end
+      end
+    end
+  end
+
   context 'when iterating over objects sharing the same base' do
 
     let(:server) do
@@ -85,6 +303,111 @@ describe Mongoid::QueryCache do
     end
   end
 
+  context 'when driver query cache exists' do
+    min_driver_version '2.14'
+
+    before do
+      Band.all.to_a
+      Band.create!
+    end
+
+    it 'recognizes the driver query cache' do
+      expect(defined?(Mongo::QueryCache)).to_not be_nil
+    end
+
+    context 'when query cache enabled' do
+
+      it 'uses the driver query cache' do
+        expect(Mongo::QueryCache).to receive(:enabled=).and_call_original
+        Mongoid::QueryCache.enabled = true
+
+        expect(Mongoid::QueryCache.enabled?).to be(true)
+        expect(Mongo::QueryCache.enabled?).to be(true)
+      end
+    end
+
+    context 'when query cache disabled' do
+
+      it 'uses the driver query cache' do
+        expect(Mongo::QueryCache).to receive(:enabled=).and_call_original
+        Mongoid::QueryCache.enabled = false
+
+        expect(Mongoid::QueryCache.enabled?).to be(false)
+        expect(Mongo::QueryCache.enabled?).to be(false)
+      end
+    end
+
+    context 'when block is cached' do
+
+      before do
+        Mongoid::QueryCache.enabled = false
+      end
+
+      it 'uses the driver query cache' do
+        expect(Mongo::QueryCache).to receive(:cache).and_call_original
+        Mongoid::QueryCache.cache do
+          expect(Mongo::QueryCache).to receive(:enabled?).exactly(2).and_call_original
+          expect(Mongoid::QueryCache.enabled?).to be(true)
+          expect(Mongo::QueryCache.enabled?).to be(true)
+        end
+      end
+    end
+
+    context 'when block is uncached' do
+
+      before do
+        Mongoid::QueryCache.enabled = true
+      end
+
+      it 'uses the driver query cache' do
+        expect(Mongo::QueryCache).to receive(:uncached).and_call_original
+        Mongoid::QueryCache.uncached do
+          expect(Mongo::QueryCache).to receive(:enabled?).exactly(2).and_call_original
+          expect(Mongoid::QueryCache.enabled?).to be(false)
+          expect(Mongo::QueryCache.enabled?).to be(false)
+        end
+      end
+    end
+
+    context 'when clear_cache is used' do
+
+      before do
+        Band.all.to_a
+      end
+
+      it 'requires Mongoid to query again' do
+        expect_no_queries do
+          Band.all.to_a
+        end
+
+        Mongoid::QueryCache.clear_cache
+
+        expect_query(1) do
+          Band.all.to_a
+        end
+      end
+    end
+
+    context 'when query cache used and cleared' do
+      it 'uses the driver query cache' do
+        expect(Mongo::QueryCache).to receive(:set).once.and_call_original
+
+        expect_query(1) do
+          Band.all.to_a
+          Band.all.to_a
+        end
+      end
+    end
+  end
+
+  context 'when drivers query cache does not exist' do
+    max_driver_version '2.13'
+
+    it 'does not recognize the driver query cache' do
+      expect(defined?(Mongo::QueryCache)).to be_nil
+    end
+  end
+
   context "when querying for a single document" do
 
     [ :first, :one, :last ].each do |method|
@@ -134,24 +457,81 @@ describe Mongoid::QueryCache do
     end
 
     it 'returns all documents' do
-      expect(Person.all.to_a.count).to eq(3)
-      Person.first
-      expect(Person.all.to_a.count).to eq(3)
+      # Mongoid adds a sort by _id to the Person.first call, which is why
+      # these commands issue two queries instead of one.
+      expect_query(2) do
+        expect(Person.all.to_a.count).to eq(3)
+        Person.first
+        expect(Person.all.to_a.count).to eq(3)
+      end
+    end
+
+    it 'caches the query when order is specified' do
+      expect_query(1) do
+        expect(Person.order(_id: 1).all.to_a.count).to eq(3)
+        Person.first
+        expect(Person.order(_id: 1).all.to_a.count).to eq(3)
+      end
     end
 
     context 'with conditions specified' do
       it 'returns all documents' do
-        expect(Person.gt(age: 0).to_a.count).to eq(3)
-        Person.gt(age: 0).first
-        expect(Person.gt(age: 0).to_a.count).to eq(3)
+        # Mongoid adds a sort by _id to the Person.first call, which is why
+        # these commands issue two queries instead of one.
+        expect_query(2) do
+          expect(Person.gt(age: 0).to_a.count).to eq(3)
+          Person.gt(age: 0).first
+          expect(Person.gt(age: 0).to_a.count).to eq(3)
+        end
+      end
+
+      it 'caches the query when order is specified' do
+        expect_query(1) do
+          expect(Person.order(_id: 1).gt(age: 0).to_a.count).to eq(3)
+          Person.gt(age: 0).first
+          expect(Person.order(_id: 1).gt(age: 0).to_a.count).to eq(3)
+        end
       end
     end
 
     context 'with order specified' do
       it 'returns all documents' do
-        expect(Person.order_by(name: 1).to_a.count).to eq(3)
-        Person.order_by(name: 1).first
-        expect(Person.order_by(name: 1).to_a.count).to eq(3)
+        expect_query(1) do
+          expect(Person.order_by(name: 1).to_a.count).to eq(3)
+          Person.order_by(name: 1).first
+          expect(Person.order_by(name: 1).to_a.count).to eq(3)
+        end
+      end
+    end
+  end
+
+  context 'when using a block API' do
+    before do
+      Band.destroy_all
+      5.times { Band.create }
+    end
+
+    context '#any? with no block' do
+      it 'doesn\'t leak sessions' do
+        Band.all.any?
+      end
+    end
+
+    context '#all? with no block' do
+      it 'doesn\'t leak sessions' do
+        Band.all.all?
+      end
+    end
+
+    context '#none? with no block' do
+      it 'doesn\'t leak sessions' do
+        Band.all.none?
+      end
+    end
+
+    context '#one? with no block' do
+      it 'doesn\'t leak sessions' do
+        Band.all.one?
       end
     end
   end
@@ -183,7 +563,8 @@ describe Mongoid::QueryCache do
         end
       end
 
-      context 'when the first query has a collation', if: collation_supported? do
+      context 'when the first query has a collation' do
+        min_server_version '3.4'
 
         before do
           Band.where(name: 'DEPECHE MODE').collation(locale: 'en_US', strength: 2).to_a
@@ -224,6 +605,10 @@ describe Mongoid::QueryCache do
         end
 
         before do
+          10.times do |i|
+            game.ratings << Rating.create!(value: i+1)
+          end
+
           game.ratings.where(:value.gt => 5).asc(:id).all.to_a
         end
 
@@ -231,27 +616,54 @@ describe Mongoid::QueryCache do
 
           it "uses the cache" do
             expect_no_queries do
-              game.ratings.where(:value.gt => 5).limit(2).asc(:id).to_a
+              result = game.ratings.where(:value.gt => 5).limit(2).asc(:id).to_a
+              expect(result.length).to eq(2)
+              expect(result.map { |r| r['value'] }).to eq([6, 7])
             end
           end
         end
       end
 
       context "when the first query has a limit" do
-
         let(:game) do
           Game.create!(name: "2048")
         end
 
         before do
+          10.times do |i|
+            game.ratings << Rating.create!(value: i+1)
+          end
+
           game.ratings.where(:value.gt => 5).limit(3).asc(:id).all.to_a
         end
 
         context "when the next query has a limit" do
+          # Server versions older than 3.2 also perform a killCursors operation,
+          # which causes this test to fail.
+          min_server_version '3.2'
 
-          it "queries again" do
-            expect_query(1) do
-              game.ratings.where(:value.gt => 5).limit(2).asc(:id).to_a
+          context 'with driver query cache' do
+            min_driver_version '2.14'
+
+            # The driver query cache re-uses results with a larger limit
+            it 'does not query again' do
+              expect_no_queries do
+                result = game.ratings.where(:value.gt => 5).limit(2).asc(:id).to_a
+                expect(result.length).to eq(2)
+                expect(result.map { |r| r['value'] }).to eq([6, 7])
+              end
+            end
+          end
+
+          context 'with mongoid query cache' do
+            max_driver_version '2.13'
+
+            it 'queries again' do
+              expect_query(1) do
+                result = game.ratings.where(:value.gt => 5).limit(2).asc(:id).to_a
+                expect(result.length).to eq(2)
+                expect(result.map { |r| r['value'] }).to eq([6, 7])
+              end
             end
           end
         end
@@ -260,7 +672,9 @@ describe Mongoid::QueryCache do
 
           it "queries again" do
             expect_query(1) do
-              game.ratings.where(:value.gt => 5).asc(:id).to_a
+              result = game.ratings.where(:value.gt => 5).asc(:id).to_a
+              expect(result.length).to eq(5)
+              expect(result.map { |r| r['value'] }).to eq([6, 7, 8, 9, 10])
             end
           end
         end
@@ -273,21 +687,34 @@ describe Mongoid::QueryCache do
         end
 
         before do
+          10.times do |i|
+            game.ratings << Rating.create!(value: i+1)
+          end
+
           game.ratings.where(:value.gt => 5).asc(:id).all.to_a
         end
 
         it "does not query again" do
           expect_no_queries do
-            game.ratings.where(:value.gt => 5).asc(:id).first
+            result = game.ratings.where(:value.gt => 5).asc(:id).first
+            expect(result['value']).to eq(6)
           end
         end
       end
 
       context "when limiting the result" do
+        before do
+          Band.destroy_all
+
+          5.times { |i| Band.create!(name: "Band #{i}") }
+          Band.all.to_a
+        end
 
         it "does not query again" do
           expect_query(0) do
-            Band.limit(2).all.to_a
+            result = Band.limit(2).all.to_a
+            expect(result.length).to eq(2)
+            expect(result.map { |r| r["name"] }).to eq(["Band 0", "Band 1"])
           end
         end
       end
@@ -295,12 +722,17 @@ describe Mongoid::QueryCache do
       context "when specifying a different skip value" do
 
         before do
+          Band.destroy_all
+
+          5.times { |i| Band.create!(name: "Band #{i}") }
           Band.limit(2).skip(1).all.to_a
         end
 
         it "queries again" do
           expect_query(1) do
-            Band.limit(2).skip(3).all.to_a
+            result = Band.limit(2).skip(3).all.to_a
+            expect(result.length).to eq(2)
+            expect(result.map { |r| r["name"] }).to eq(["Band 3", "Band 4"])
           end
         end
       end
@@ -335,6 +767,25 @@ describe Mongoid::QueryCache do
         end
       end
     end
+
+   context 'when querying colleciton larger than the batch size' do
+     before do
+       Band.destroy_all
+       101.times { |i| Band.create!(_id: i) }
+     end
+
+     it 'does not raise an exception when querying multiple times' do
+       expect do
+         results1 = Band.all.to_a
+         expect(results1.length).to eq(101)
+         expect(results1.map { |band| band["_id"] }).to eq([*0..100])
+
+         results2 = Band.all.to_a
+         expect(results2.length).to eq(101)
+         expect(results2.map { |band| band["_id"] }).to eq([*0..100])
+       end.not_to raise_error
+     end
+   end
 
     context "when query caching is enabled and the batch_size is set" do
 
@@ -470,8 +921,10 @@ describe Mongoid::QueryCache do
         end
       end
 
-      it "returns the same count of objects when using #pluck" do
-        expect(Band.pluck(:name).length).to eq(99)
+      it "returns the same count of objects when using #pluck but doesn't cache" do
+        expect_query(1) do
+          expect(Band.pluck(:name).length).to eq(99)
+        end
       end
     end
   end
@@ -489,20 +942,36 @@ describe Mongoid::QueryCache do
       Mongoid::QueryCache.enabled = true
       10.times { Band.create! }
 
-      Band.batch_size(4).all.any?
+      Band.batch_size(4).to_a
     end
 
-    it 'does not cache the result' do
-      expect(Band.all.map(&:id).size).to eq(10)
-    end
+    context 'with driver query cache' do
+      min_driver_version '2.14'
 
-    context 'when a batch size smaller than the result set is specified' do
-      let(:batch_size) do
-        4
+      # The driver query cache caches multi-batch cursors
+      it 'does cache the result' do
+        expect_no_queries do
+          expect(Band.all.map(&:id).size).to eq(10)
+        end
       end
+    end
+
+    context 'with mongoid query cache' do
+      max_driver_version '2.13'
 
       it 'does not cache the result' do
-        expect(Band.batch_size(batch_size).all.map(&:id).size).to eq(10)
+        expect_query(1) do
+          expect(Band.all.map(&:id).size).to eq(10)
+        end
+      end
+    end
+  end
+
+  context 'when storing in system collection' do
+    it 'does not cache the query' do
+      expect_query(2) do
+        SystemRole.all.to_a
+        SystemRole.all.to_a
       end
     end
   end
