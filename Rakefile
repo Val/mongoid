@@ -44,13 +44,14 @@ CLASSIFIERS = [
   [%r,^mongoid/attribute,, :attributes],
   [%r,^mongoid/association/[or],, :associations_referenced],
   [%r,^mongoid/association,, :associations],
+  [%r,^mongoid/contextual/mongo,, :contextual_mongo],
   [%r,^mongoid,, :unit],
   [%r,^integration,, :integration],
   [%r,^rails,, :rails],
 ]
 
 RUN_PRIORITY = %i(
-  unit attributes associations_referenced associations
+  unit attributes contextual_mongo associations_referenced associations
   integration rails
 )
 
@@ -64,6 +65,22 @@ end
 
 task :ci do
   spec_organizer.run
+end
+
+task :bucket, %i(buckets) do |task, args|
+  buckets = args[:buckets]
+  buckets = if buckets.nil? || buckets.empty?
+    [nil]
+  else
+    buckets.split(':').map do |bucket|
+      if bucket.empty?
+        nil
+      else
+        bucket.to_sym
+      end
+    end
+  end
+  spec_organizer.run_buckets(*buckets)
 end
 
 task :default => :spec
